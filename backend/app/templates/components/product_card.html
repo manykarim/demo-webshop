@@ -1,0 +1,88 @@
+{% macro rating_stars(rating, count=0) %}
+{% set rounded = rating if rating is not none else 0 %}
+{% set full = rounded|int %}
+{% set remainder = rounded - full %}
+{% if remainder >= 0.75 %}
+{% set full = full + 1 %}
+{% set half = 0 %}
+{% elif remainder >= 0.25 %}
+{% set half = 1 %}
+{% else %}
+{% set half = 0 %}
+{% endif %}
+{% if full > 5 %}
+{% set full = 5 %}
+{% set half = 0 %}
+{% endif %}
+{% set empty = 5 - full - half %}
+<div class="rating" role="group"
+  aria-label="Rated {{ rounded|round(1) }} out of 5 stars{% if count %} from {{ count }} reviews{% endif %}">
+  <span class="rating__value">{{ rounded|round(1) }}</span>
+  <span class="rating__stars" aria-hidden="true">
+    {% for _ in range(full) %}
+    <svg viewBox="0 0 24 24">
+      <path d="M12 2.2 14.9 8l6.4.5-4.9 4.2 1.5 6.3L12 15.8 6.1 19l1.5-6.3-4.9-4.2L9.1 8 12 2.2Z" />
+    </svg>
+    {% endfor %}
+    {% for _ in range(half) %}
+    <svg viewBox="0 0 24 24">
+      <path d="M12 2.2 14.9 8l6.4.5-4.9 4.2 1.5 6.3L12 15.8V2.2Z" />
+      <path d="M12 2.2 9.1 8l-6.4.5 4.9 4.2-1.5 6.3L12 15.8" fill="none" stroke="currentColor" stroke-width="1.2" />
+    </svg>
+    {% endfor %}
+    {% for _ in range(empty) %}
+    <svg viewBox="0 0 24 24">
+      <path d="M12 2.2 14.9 8l6.4.5-4.9 4.2 1.5 6.3L12 15.8 6.1 19l1.5-6.3-4.9-4.2L9.1 8 12 2.2Z" fill="none"
+        stroke="currentColor" stroke-width="1.2" />
+    </svg>
+    {% endfor %}
+  </span>
+  {% if count %}
+  <span class="rating__count">({{ count }})</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro product_card(product, variant="default", show_actions=True) %}
+<article class="product-card{% if variant != 'default' %} product-card--{{ variant }}{% endif %}"
+  data-test="product-card">
+  <div class="product-card__media">
+    <picture>
+      <source srcset="{{ product.image_url }}" type="image/jpeg" />
+      <img src="{{ product.image_url }}" alt="{{ product.name }} product photo" loading="lazy" />
+    </picture>
+  </div>
+  <div class="product-card__body">
+    {% if product.category %}
+    <span class="category-badge" data-category="{{ product.category|lower }}">{{ product.category }}</span>
+    {% endif %}
+    <h3 class="product-card__title"><a href="/products/{{ product.id }}">{{ product.name }}</a></h3>
+    {% if product.description and variant == "default" %}
+    <p class="product-card__description">{{ product.description }}</p>
+    {% endif %}
+    {% if variant != "mini" and product.rating %}
+    <div class="product-card__meta" aria-label="Product rating">
+      {{ rating_stars(product.rating, product.review_count or 0) }}
+    </div>
+    {% endif %}
+  </div>
+  <div class="product-card__footer">
+    <span class="product-card__price">{{ product.price|currency }}</span>
+    {% if show_actions %}
+    {% if variant == "compact" %}
+    <div class="product-card__cta product-card__cta--single">
+      <button class="button button--primary" data-event="add_to_cart" data-product="{{ product.id }}"
+        data-product-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart">Add to cart</button>
+    </div>
+    {% else %}
+    <div class="product-card__cta">
+      <button class="button button--primary" data-event="add_to_cart" data-product="{{ product.id }}"
+        data-product-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart">Add to cart</button>
+      <a class="product-card__link" href="/products/{{ product.id }}" aria-label="View {{ product.name }}">View
+        details</a>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+</article>
+{% endmacro %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Shopping Cart - AI Shop{% endblock %}
+
+{% block content %}
+{% if feature_flags and feature_flags.NEW_CART_UI %}
+<div class="callout callout--success">
+  Previewing the new cart experience—streamlined totals and saved preferences are on the way.
+</div>
+{% endif %}
+<section class="section cart">
+  <div class="section-heading">
+    <h2 class="section-title">Your cart</h2>
+    <p class="section-subtitle">Flexible returns, tracked delivery, and human support every step of the journey.</p>
+  </div>
+
+  {% if items %}
+  <div class="cart-layout">
+    <div class="cart-items">
+      {% for item in items %}
+      <article class="cart-item">
+        <div>
+          <h3>{{ item.name }}</h3>
+          <p>{{ item.quantity }} × {{ item.unit_price|currency }}</p>
+        </div>
+        <span class="cart-item__price">{{ item.total_price|currency }}</span>
+      </article>
+      {% endfor %}
+    </div>
+    <aside class="cart-summary">
+      <h3>Summary</h3>
+      <dl>
+        <div>
+          <dt>Subtotal</dt>
+          <dd>{{ total|currency }}</dd>
+        </div>
+        <div>
+          <dt>Shipping</dt>
+          <dd>Complimentary</dd>
+        </div>
+        <div>
+          <dt>Estimated tax</dt>
+          <dd>Calculated at checkout</dd>
+        </div>
+      </dl>
+      <div class="cart-summary__total">
+        <span>Total due</span>
+        <strong>{{ total|currency }}</strong>
+      </div>
+      <div class="cart-summary__actions">
+        <a class="button button--primary button--lg" href="/checkout">Proceed to checkout</a>
+        <a class="button button--ghost" href="/products">Continue shopping</a>
+      </div>
+      <ul class="cart-summary__assurances">
+        <li>Secure payments powered by Stripe</li>
+        <li>Live chat support available 7 days a week</li>
+        <li>Enterprise invoicing and purchase orders on request</li>
+      </ul>
+    </aside>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>Your cart is still empty</h3>
+    <p>Discover AI-ready gear and wellness staples to support your next sprint.</p>
+    <a class="button button--primary" href="/products">Browse the catalogue</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

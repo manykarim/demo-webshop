@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+aiosqlite
+pydantic[email]
+pydantic-settings
+jinja2
+python-multipart
+aiofiles
+itsdangerous
+weasyprint
+pydantic-ai-slim
+httpx
+requests
+python-dotenv
+cachetools

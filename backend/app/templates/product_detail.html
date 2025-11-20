@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% import "components/product_card.html" as cards %}
+
+{% block title %}{{ product.name }} | Flowline Supply{% endblock %}
+
+{% block content %}
+<section class="product-hero">
+  <div class="product-hero__media">
+    <picture>
+      <source srcset="{{ product.image_url }}" type="image/jpeg" />
+      <img src="{{ product.image_url }}" alt="{{ product.name }} product photo" />
+    </picture>
+  </div>
+  <div class="product-hero__details">
+    {% if product.category %}
+    <span class="category-badge" data-category="{{ product.category|lower }}">{{ product.category }}</span>
+    {% endif %}
+    <h1>{{ product.name }}</h1>
+    {% if product.rating %}
+    <div class="product-hero__rating">
+      {{ cards.rating_stars(product.rating, product.review_count or 0) }}
+      {% if product.review_count %}
+      <span class="product-hero__reviews">{{ product.review_count }} reviews</span>
+      {% endif %}
+    </div>
+    {% endif %}
+    <p class="product-hero__description">{{ product.description }}</p>
+    <div class="product-hero__price">
+      <span class="price">{{ product.price|currency }}</span>
+      <p class="product-hero__meta">Free 48h shipping • 45 day returns • Live onboarding webinar</p>
+    </div>
+    <div class="product-hero__actions">
+      <button class="button button--primary button--lg" data-event="add_to_cart" data-product="{{ product.id }}"
+        data-product-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="9" cy="21" r="1"></circle>
+          <circle cx="20" cy="21" r="1"></circle>
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61H19a2 2 0 0 0 2-1.61L23 6H6"></path>
+        </svg>
+        Add to cart
+      </button>
+      <a class="button button--ghost button--lg" href="/checkout">Buy now</a>
+    </div>
+    <ul class="product-hero__highlights">
+      <li>
+        <strong>Warranty</strong>
+        <span>2 years of proactive support with express replacement.</span>
+      </li>
+      <li>
+        <strong>Compatibility</strong>
+        <span>Works seamlessly with leading productivity tools and native apps.</span>
+      </li>
+      <li>
+        <strong>Impact</strong>
+        <span>Carbon-neutral shipping with verified climate projects.</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-heading">
+    <h2 class="section-title">Why you'll love it</h2>
+  </div>
+  <div class="feature-grid">
+    <article class="feature-card">
+      <h3>Intelligent automation</h3>
+      <p>Pair with the AI help desk to surface personalised workflows, daily rituals, and nudges that keep you in flow.
+      </p>
+    </article>
+    <article class="feature-card">
+      <h3>Designed for teams</h3>
+      <p>Includes admin controls, analytics dashboards, and templates for software squads, researchers, and studio
+        teams.</p>
+    </article>
+    <article class="feature-card">
+      <h3>Planet minded</h3>
+      <p>Made from responsibly sourced materials and shipped in recycled packaging with end-of-life recycling support.
+      </p>
+    </article>
+  </div>
+</section>
+
+<section class="section section--accent">
+  <div class="section-heading">
+    <h2 class="section-title">You might also like</h2>
+  </div>
+  {% if related_products %}
+  <div class="product-grid">
+    {% for related in related_products %}
+    {{ cards.product_card(related, variant="compact", show_actions=True) }}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-state">We're sourcing more complementary gear. Explore the latest arrivals below.</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="section-heading">
+    <h2 class="section-title">Trending in the studio</h2>
+  </div>
+  <div class="product-grid">
+    {% for item in trending_products %}
+    {{ cards.product_card(item, variant="mini", show_actions=False) }}
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

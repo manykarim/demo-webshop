@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Invoice {{ order.order_number }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 1cm;
+    }
+
+    body {
+      font-family: "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+      color: #333;
+      font-size: 12px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding-bottom: 20px;
+      border-bottom: 2px solid #f0f0f0;
+    }
+
+    .header img {
+      max-width: 150px;
+    }
+
+    .company-details {
+      text-align: right;
+    }
+
+    .invoice-details {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 40px;
+    }
+
+    .invoice-details .bill-to {
+      text-align: left;
+    }
+
+    .invoice-details .invoice-meta {
+      text-align: right;
+    }
+
+    h1 {
+      font-size: 24px;
+      color: #000;
+      margin: 0;
+    }
+
+    h2 {
+      font-size: 14px;
+      color: #555;
+      margin-top: 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+
+    th,
+    td {
+      padding: 12px;
+      text-align: left;
+    }
+
+    thead {
+      background-color: #f9f9f9;
+      border-bottom: 2px solid #f0f0f0;
+    }
+
+    th {
+      font-weight: bold;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .totals {
+      margin-top: 30px;
+      width: 300px;
+      margin-left: auto;
+    }
+
+    .totals table {
+      width: 100%;
+    }
+
+    .totals td {
+      padding: 8px;
+    }
+
+    .totals .label {
+      font-weight: bold;
+    }
+
+    .totals .amount {
+      text-align: right;
+    }
+
+    .footer {
+      position: running(footer);
+      text-align: center;
+      font-size: 10px;
+      color: #888;
+    }
+
+    .footer img {
+      max-width: 200px;
+      margin-top: 10px;
+    }
+
+    @bottom-center {
+      content: element(footer);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="footer">
+    <p>Thank you for your business!</p>
+    <p>Flowline Supply | 123 Innovation Drive, Tech City, 94105 | (123) 456-7890</p>
+    <img src="static/img/barcode.png" alt="Barcode" />
+  </div>
+
+  <div class="header">
+    <img src="static/img/flowline-logo.png" alt="Flowline Supply Logo" />
+    <div class="company-details">
+      <h2>Flowline Supply</h2>
+      <p>123 Innovation Drive<br />Tech City, CA 94105<br />(123) 456-7890<br />contact@flowlinesupply.com</p>
+    </div>
+  </div>
+
+  <div class="invoice-details">
+    <div class="bill-to">
+      <h2>Bill To</h2>
+      <p>
+        {{ customer.name }}<br />
+        {{ customer.email }}<br />
+        {{ customer.address }}
+      </p>
+    </div>
+    <div class="invoice-meta">
+      <h1>Invoice</h1>
+      <p>
+        <strong>Invoice #:</strong> {{ order.order_number }}<br />
+        <strong>Date:</strong> {{ order.order_date }}
+      </p>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Quantity</th>
+        <th>Unit Price</th>
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.name }}</td>
+        <td>{{ item.quantity }}</td>
+        <td>${{ "%.2f"|format(item.unit_price) }}</td>
+        <td>${{ "%.2f"|format(item.total_price) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <table>
+      <tr>
+        <td class="label">Subtotal</td>
+        <td class="amount">${{ "%.2f"|format(order.subtotal) }}</td>
+      </tr>
+      <tr>
+        <td class="label">Tax (7%)</td>
+        <td class="amount">${{ "%.2f"|format(order.tax) }}</td>
+      </tr>
+      <tr>
+        <td class="label"><strong>Total</strong></td>
+        <td class="amount"><strong>${{ "%.2f"|format(order.total) }}</strong></td>
+      </tr>
+    </table>
+  </div>
+</body>
+
+</html>

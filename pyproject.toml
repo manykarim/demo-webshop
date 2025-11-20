@@ -1,0 +1,40 @@
+[project]
+name = "demo-webshop"
+version = "0.1.0"
+description = "AI-enhanced Robot Framework demo application for testing workshops"
+requires-python = ">=3.11"
+authors = [
+  { name = "Many Kasiriha" }
+]
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "sqlalchemy",
+  "aiosqlite",
+  "pydantic[email]",
+  "pydantic-settings",
+  "jinja2",
+  "python-multipart",
+  "aiofiles",
+  "itsdangerous",
+  "weasyprint",
+  "pydantic-ai-slim",
+  "httpx",
+  "requests",
+  "python-dotenv",
+  "cachetools"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "mypy",
+  "ruff",
+  "types-requests",
+  "types-cachetools"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"

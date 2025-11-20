@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}Checkout | Flowline Supply{% endblock %}
+
+{% block content %}
+<section class="section checkout">
+  <div class="section-heading">
+    <h2 class="section-title">Checkout</h2>
+    <p class="section-subtitle">Secure payments, instant invoice downloads, and dedicated account support.</p>
+  </div>
+
+  {% set order_complete = checkout_message and checkout_message_variant == 'success' %}
+  <div class="checkout-layout">
+    {% if checkout_message %}
+    <div class="checkout-alert checkout-alert--{{ checkout_message_variant|default('info') }}" role="alert">
+      <p>{{ checkout_message }}</p>
+      {% if document_links %}
+      <p class="checkout-alert__links">
+        <a href="{{ document_links.invoice }}" target="_blank">Download Invoice PDF</a>
+        <a href="{{ document_links.summary }}" target="_blank">Download Order Summary PDF</a>
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if not order_complete %}
+    <form class="checkout-form" method="post" action="/checkout">
+      <p class="checkout-auth-note" data-auth-note hidden>
+        Signed in as <span data-auth-note-name></span>. We prefilled your saved details — adjust anything before placing
+        the order.
+      </p>
+      <fieldset>
+        <legend>Contact</legend>
+        <label class="form-field" for="checkout-email">
+          <span>Email</span>
+          <input id="checkout-email" name="email" type="email" placeholder="you@productstudio.com" required
+            aria-describedby="checkout-email-hint" />
+        </label>
+        <span id="checkout-email-hint" class="visually-hidden">We'll send confirmation and shipping updates.</span>
+        <label class="form-field" for="checkout-name">
+          <span>Full name</span>
+          <input id="checkout-name" name="name" placeholder="Jamie Product" required />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Shipping</legend>
+        <label class="form-field" for="checkout-address">
+          <span>Address</span>
+          <textarea id="checkout-address" name="address" rows="3" placeholder="123 Flow Street&#10;San Francisco, CA"
+            required></textarea>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Delivery notes</legend>
+        <label class="form-field" for="checkout-team-size">
+          <span>Team size (optional)</span>
+          <input id="checkout-team-size" name="team_size" type="number" min="1" placeholder="e.g. 12" />
+        </label>
+        <label class="form-field" for="checkout-notes">
+          <span>Special instructions</span>
+          <textarea id="checkout-notes" name="notes" rows="2"
+            placeholder="Let us know about preferred delivery windows or packaging."></textarea>
+        </label>
+      </fieldset>
+
+      <div id="checkout-alert" class="newsletter-alert" role="alert" hidden></div>
+      <button class="button button--primary button--lg" type="submit">Place order</button>
+    </form>
+    {% endif %}
+
+    <aside class="checkout-summary">
+      <h3>Order summary</h3>
+      {% if order_complete %}
+      <div class="checkout-summary__confirmation">
+        <p class="confirmation-copy">Your cart has been cleared. Download the receipt documents above or continue
+          shopping for more products.</p>
+        <a class="button button--secondary" href="/products">Browse products</a>
+      </div>
+      {% else %}
+      {% if items %}
+      <ul class="checkout-summary__items">
+        {% for item in items %}
+        <li>
+          <div>
+            <strong>{{ item.name }}</strong>
+            <span>{{ item.quantity }} × {{ item.unit_price|currency }}</span>
+          </div>
+          <span>{{ item.total_price|currency }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty-state">Your cart is empty. Add items before completing checkout.</p>
+      {% endif %}
+      <dl>
+        <div>
+          <dt>Subtotal</dt>
+          <dd>{{ total|currency }}</dd>
+        </div>
+        <div>
+          <dt>Shipping</dt>
+          <dd>Complimentary</dd>
+        </div>
+        <div>
+          <dt>Estimated tax</dt>
+          <dd>Calculated after address</dd>
+        </div>
+      </dl>
+      <div class="checkout-summary__total">
+        <span>Total due at payment</span>
+        <strong>{{ total|currency }}</strong>
+      </div>
+      {% endif %}
+      <ul class="checkout-summary__assurances">
+        <li>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="m4 4 16 0 0 6c0 7-4 10-8 11-4-1-8-4-8-11z"></path>
+            <path d="m9 12 2 2 4-4"></path>
+          </svg>
+          2-year extended warranty on all hardware.
+        </li>
+        <li>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 7h16"></path>
+            <path d="M10 11v6"></path>
+            <path d="m8 13 4-4 4 4"></path>
+            <path d="M4 19h16"></path>
+          </svg>
+          Carbon-neutral delivery with courier tracking.
+        </li>
+        <li>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 15a4 4 0 0 0 4 4h11a3 3 0 0 0 0-6h-1"></path>
+            <path d="M16 12c0-2.8-2.2-5-5-5-1.2 0-2.3.4-3.1 1.2"></path>
+            <path d="M11 17h.01"></path>
+          </svg>
+          Priority support for product and design teams.
+        </li>
+      </ul>
+    </aside>
+  </div>
+</section>
+{% endblock %}
