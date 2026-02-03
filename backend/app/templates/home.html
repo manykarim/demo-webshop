@@ -36,6 +36,19 @@
 {% endblock %}
 
 {% block content %}
+{# Workshop: Display active locator/bug flags for debugging #}
+{% if feature_flags.get("LOCATOR_V2") or feature_flags.get("LOCATOR_V3") or feature_flags.get("LOCATOR_V4") or feature_flags.get("BUG_MISSING_BUTTON") or feature_flags.get("BUG_WRONG_PRICE") or feature_flags.get("BUG_BROKEN_LINKS") %}
+<div class="workshop-banner" style="background: #fef3c7; border: 1px solid #f59e0b; padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 8px; font-size: 0.875rem;">
+  <strong>Workshop Mode Active:</strong>
+  {% if feature_flags.get("LOCATOR_V2") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #dbeafe; border-radius: 4px;">Locator V2</span>{% endif %}
+  {% if feature_flags.get("LOCATOR_V3") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #fce7f3; border-radius: 4px;">Locator V3</span>{% endif %}
+  {% if feature_flags.get("LOCATOR_V4") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #f3e8ff; border-radius: 4px;">Locator V4</span>{% endif %}
+  {% if feature_flags.get("BUG_MISSING_BUTTON") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #fee2e2; border-radius: 4px;">Bug: Missing Buttons</span>{% endif %}
+  {% if feature_flags.get("BUG_WRONG_PRICE") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #fee2e2; border-radius: 4px;">Bug: Wrong Prices</span>{% endif %}
+  {% if feature_flags.get("BUG_BROKEN_LINKS") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #fee2e2; border-radius: 4px;">Bug: Broken Links</span>{% endif %}
+</div>
+{% endif %}
+
 {% set has_cart_flag = feature_flags.NEW_CART_UI if feature_flags else False %}
 {% set has_mobile_flag = feature_flags.MOBILE_UI_V1 if feature_flags else False %}
 
@@ -113,7 +126,7 @@
   </div>
   <div class="product-grid">
     {% for product in featured_products %}
-    {{ cards.product_card(product) }}
+    {{ cards.product_card(product, feature_flags=feature_flags) }}
     {% endfor %}
   </div>
 </section>
@@ -133,7 +146,7 @@
   </div>
   <div class="product-grid">
     {% for product in popular_products %}
-    {{ cards.product_card(product, variant="compact", show_actions=True) }}
+    {{ cards.product_card(product, variant="compact", show_actions=True, feature_flags=feature_flags) }}
     {% endfor %}
   </div>
 </section>
@@ -152,7 +165,7 @@
   </div>
   <div class="product-grid">
     {% for product in premium_picks %}
-    {{ cards.product_card(product) }}
+    {{ cards.product_card(product, feature_flags=feature_flags) }}
     {% endfor %}
   </div>
 </section>

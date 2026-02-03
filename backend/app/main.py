@@ -331,7 +331,7 @@ async def health_check():
 
 def configure_routes() -> None:
     """Import and register routers lazily to avoid circular dependencies."""
-    from .api import admin, ai, auth, cart, checkout, docs, products, search
+    from .api import admin, ai, auth, cart, checkout, docs, products, search, workshop
 
     app.include_router(products.router, prefix="/api/products", tags=["products"])
     app.include_router(search.router, prefix="/api/search", tags=["search"])
@@ -341,6 +341,7 @@ def configure_routes() -> None:
     app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
     app.include_router(docs.router, prefix="/api/docs", tags=["documents"])
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+    app.include_router(workshop.router, prefix="/api/workshop", tags=["workshop"])
 
 
 configure_routes()

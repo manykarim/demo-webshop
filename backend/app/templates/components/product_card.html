@@ -43,46 +43,79 @@
 </div>
 {% endmacro %}
 
-{% macro product_card(product, variant="default", show_actions=True) %}
-<article class="product-card{% if variant != 'default' %} product-card--{{ variant }}{% endif %}"
-  data-test="product-card">
-  <div class="product-card__media">
+{% macro product_card(product, variant="default", show_actions=True, feature_flags={}) %}
+{# Workshop: Determine CSS class names based on locator stage #}
+{% set card_class = "item-card" if feature_flags.get("LOCATOR_V2") else ("product-tile" if feature_flags.get("LOCATOR_V4") else "product-card") %}
+{% set title_class = "item-title" if feature_flags.get("LOCATOR_V2") else "product-card__title" %}
+{% set price_class = "item-cost" if feature_flags.get("LOCATOR_V2") else "product-card__price" %}
+{% set cta_class = "item-actions" if feature_flags.get("LOCATOR_V2") else "product-card__cta" %}
+{% set btn_class = "btn-main" if feature_flags.get("LOCATOR_V2") else "button button--primary" %}
+{% set action_name = "add-item" if feature_flags.get("LOCATOR_V2") else "add_to_cart" %}
+
+{# Workshop: Determine if data-test attributes should be shown #}
+{% set show_data_test = not (feature_flags.get("LOCATOR_V3") or feature_flags.get("LOCATOR_V4")) %}
+
+{# Workshop: Bug - Wrong price display #}
+{% set display_price = product.price * 1.15 if feature_flags.get("BUG_WRONG_PRICE") and (product.id % 3 == 0) else product.price %}
+
+{# Workshop: Bug - Broken links #}
+{% set product_url = "/products/invalid-" ~ product.id if feature_flags.get("BUG_BROKEN_LINKS") and (product.id % 4 == 0) else "/products/" ~ product.id %}
+
+{# Workshop: Bug - Missing button #}
+{% set hide_button = feature_flags.get("BUG_MISSING_BUTTON") and (product.id % 5 == 0) %}
+
+{# Workshop: V4 - Extra wrapper div #}
+{% if feature_flags.get("LOCATOR_V4") %}
+<div class="tile-wrapper" data-product-wrapper="{{ product.id }}">
+{% endif %}
+
+<article class="{{ card_class }}{% if variant != 'default' %} {{ card_class }}--{{ variant }}{% endif %}"
+  {% if show_data_test %}data-test="product-card" data-product-id="{{ product.id }}"{% endif %}>
+  <div class="{{ card_class }}__media">
     <picture>
       <source srcset="{{ product.image_url }}" type="image/jpeg" />
       <img src="{{ product.image_url }}" alt="{{ product.name }} product photo" loading="lazy" />
     </picture>
   </div>
-  <div class="product-card__body">
+  <div class="{{ card_class }}__body{% if feature_flags.get('LOCATOR_V4') %} tile-content{% endif %}">
     {% if product.category %}
     <span class="category-badge" data-category="{{ product.category|lower }}">{{ product.category }}</span>
     {% endif %}
-    <h3 class="product-card__title"><a href="/products/{{ product.id }}">{{ product.name }}</a></h3>
+    <h3 class="{{ title_class }}"><a href="{{ product_url }}"{% if show_data_test %} data-test="product-link"{% endif %}>{{ product.name }}</a></h3>
     {% if product.description and variant == "default" %}
-    <p class="product-card__description">{{ product.description }}</p>
+    <p class="{{ card_class }}__description">{{ product.description }}</p>
     {% endif %}
     {% if variant != "mini" and product.rating %}
-    <div class="product-card__meta" aria-label="Product rating">
+    <div class="{{ card_class }}__meta" aria-label="Product rating">
       {{ rating_stars(product.rating, product.review_count or 0) }}
     </div>
     {% endif %}
   </div>
-  <div class="product-card__footer">
-    <span class="product-card__price">{{ product.price|currency }}</span>
-    {% if show_actions %}
+  <div class="{{ card_class }}__footer{% if feature_flags.get('LOCATOR_V4') %} tile-actions{% endif %}">
+    <span class="{{ price_class }}"{% if show_data_test %} data-test="product-price"{% endif %}>{{ display_price|currency }}</span>
+    {% if show_actions and not hide_button %}
     {% if variant == "compact" %}
-    <div class="product-card__cta product-card__cta--single">
-      <button class="button button--primary" data-event="add_to_cart" data-product="{{ product.id }}"
-        data-product-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart">Add to cart</button>
+    <div class="{{ cta_class }} {{ cta_class }}--single">
+      <button class="{{ btn_class }}" data-event="{{ action_name }}" data-product="{{ product.id }}"
+        data-product-name="{{ product.name }}"{% if show_data_test %} data-test="add-to-cart-btn"{% endif %} aria-label="Add {{ product.name }} to cart">Add to cart</button>
     </div>
     {% else %}
-    <div class="product-card__cta">
-      <button class="button button--primary" data-event="add_to_cart" data-product="{{ product.id }}"
-        data-product-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart">Add to cart</button>
-      <a class="product-card__link" href="/products/{{ product.id }}" aria-label="View {{ product.name }}">View
-        details</a>
+    <div class="{{ cta_class }}">
+      <button class="{{ btn_class }}" data-event="{{ action_name }}" data-product="{{ product.id }}"
+        data-product-name="{{ product.name }}"{% if show_data_test %} data-test="add-to-cart-btn"{% endif %} aria-label="Add {{ product.name }} to cart">Add to cart</button>
+      <a class="{{ card_class }}__link" href="{{ product_url }}"{% if show_data_test %} data-test="view-details-link"{% endif %} aria-label="View {{ product.name }}">View details</a>
     </div>
     {% endif %}
+    {% elif hide_button %}
+    {# Workshop: Bug - Button intentionally hidden #}
+    <div class="{{ cta_class }}" style="visibility: hidden;">
+      <span data-test="hidden-button-placeholder">Button unavailable</span>
+    </div>
     {% endif %}
   </div>
 </article>
+
+{% if feature_flags.get("LOCATOR_V4") %}
+</div>
+{% endif %}
 {% endmacro %}

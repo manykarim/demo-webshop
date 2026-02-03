@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from ..core.feature_flags import list_feature_flags
 from .product_service import ProductService
 from .rag_index import RAGIndex
 
@@ -23,16 +25,49 @@ class ProductInsight(BaseModel):
 
 
 class MockLLM:
+    """Mock LLM with configurable response variations for workshop testing."""
+
+    RESPONSE_TEMPLATES = [
+        "(Mock) Based on your question '{question}', consider: {context_line}",
+        "(Mock) Great question about '{question}'! Here's what I found: {context_line}",
+        "(Mock) Looking at '{question}', I'd recommend: {context_line}",
+        "(Mock) For '{question}', our catalogue suggests: {context_line}",
+        "(Mock) Regarding '{question}': {context_line}",
+    ]
+
+    def __init__(self, varied: bool = False, seed: int = None):
+        self.varied = varied
+        self.seed = seed
+        self._call_count = 0
+
     async def run(self, question: str, context: str, mode: str) -> ProductInsight:
+        self._call_count += 1
+
         if context:
             first_line = context.splitlines()[0]
         else:
             first_line = "We offer a curated catalogue of productivity gadgets."
+
+        # Select template based on variation mode
+        if self.varied:
+            template_idx = (self._call_count + (self.seed or 0)) % len(self.RESPONSE_TEMPLATES)
+            template = self.RESPONSE_TEMPLATES[template_idx]
+        else:
+            template = self.RESPONSE_TEMPLATES[0]
+
+        summary = template.format(question=question, context_line=first_line)
+
+        # Vary highlights if in variation mode
+        highlights = [first_line]
+        if self.varied and context:
+            lines = context.splitlines()[:3]
+            highlights = [line for line in lines if line.strip()]
+
         return ProductInsight(
             product="Catalogue Overview",
-            summary=f"(Mock) Based on your question '{question}', consider: {first_line}",
+            summary=summary,
             price=None,
-            highlights=[first_line],
+            highlights=highlights,
         )
 
 
@@ -52,6 +87,13 @@ class AIService:
         self.model = settings.ai_model
         self._index = RAGIndex()
         self._mock_llm = MockLLM()
+        self._flags: Dict[str, bool] = {}
+
+    async def _load_flags(self) -> Dict[str, bool]:
+        """Load workshop feature flags."""
+        if not self._flags:
+            self._flags = await list_feature_flags(self.session)
+        return self._flags
 
     async def _ensure_index(self) -> None:
         if self._index._index:
@@ -179,10 +221,29 @@ class AIService:
 
     async def ask(self, question: str, mode: str = "summary", provider_override: Optional[str] = None) -> Dict[str, Any]:
         provider = provider_override or self.provider or "mock"
+
+        # Load workshop flags
+        flags = await self._load_flags()
+
+        # Workshop: Apply random delay if enabled
+        if flags.get("AI_RANDOM_DELAYS"):
+            import random
+            delay = random.uniform(0.5, 2.0)
+            await asyncio.sleep(delay)
+
         await self._ensure_index()
         context = self._index.get_context(question)
 
         header = build_prompt_header(question, mode)
+
+        # Workshop: Force deterministic mode if flag is set
+        if flags.get("AI_DETERMINISTIC"):
+            provider = "mock"
+
+        # Workshop: Configure mock LLM variations
+        if provider == "mock" or not settings.ai_api_key:
+            varied = flags.get("AI_VARIED_RESPONSES", False)
+            self._mock_llm = MockLLM(varied=varied, seed=hash(question) % 1000)
 
         if provider == "openai" and settings.ai_api_key:
             try:
@@ -194,8 +255,13 @@ class AIService:
                     "answer": insight.model_dump(),
                     "context_used": context,
                     "prompt_header": header,
+                    "workshop_flags": {
+                        "deterministic": flags.get("AI_DETERMINISTIC", False),
+                        "varied": flags.get("AI_VARIED_RESPONSES", False),
+                        "delayed": flags.get("AI_RANDOM_DELAYS", False),
+                    },
                 }
-            except Exception as exc:  # pragma: no cover - network issue fallback
+            except Exception as exc:
                 logger.exception("OpenAI request failed, falling back to mock: %s", exc)
 
         insight = await self._mock_llm.run(question, context, mode)
@@ -207,4 +273,9 @@ class AIService:
             "answer": insight.model_dump(),
             "context_used": context,
             "prompt_header": header,
+            "workshop_flags": {
+                "deterministic": flags.get("AI_DETERMINISTIC", True),
+                "varied": flags.get("AI_VARIED_RESPONSES", False),
+                "delayed": flags.get("AI_RANDOM_DELAYS", False),
+            },
         }

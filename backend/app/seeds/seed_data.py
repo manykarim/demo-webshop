@@ -159,6 +159,19 @@ FEATURE_FLAGS = [
     {"key": "NEW_CART_UI", "description": "Enable redesigned cart experience", "enabled": False},
     {"key": "MOBILE_UI_V1", "description": "Apply mobile-first responsive tweaks", "enabled": False},
     {"key": "SEARCH_V2", "description": "Use semantic search beta", "enabled": False},
+    # Workshop: Locator Variations (for self-healing testing)
+    {"key": "LOCATOR_V2", "description": "Stage 2: Change element IDs and classes", "enabled": False},
+    {"key": "LOCATOR_V3", "description": "Stage 3: Remove data-test attributes", "enabled": False},
+    {"key": "LOCATOR_V4", "description": "Stage 4: Restructure DOM hierarchy", "enabled": False},
+    # Workshop: Intentional Bugs
+    {"key": "BUG_MISSING_BUTTON", "description": "Bug: Hide add-to-cart button randomly", "enabled": False},
+    {"key": "BUG_WRONG_PRICE", "description": "Bug: Display incorrect prices", "enabled": False},
+    {"key": "BUG_BROKEN_LINKS", "description": "Bug: Break product detail links", "enabled": False},
+    {"key": "BUG_SLOW_RESPONSE", "description": "Bug: Add artificial delay to responses", "enabled": False},
+    # Workshop: AI Response Variations
+    {"key": "AI_DETERMINISTIC", "description": "AI: Force deterministic mock responses", "enabled": True},
+    {"key": "AI_RANDOM_DELAYS", "description": "AI: Add random response delays", "enabled": False},
+    {"key": "AI_VARIED_RESPONSES", "description": "AI: Enable response variation", "enabled": False},
 ]
 
 USERS_FIXTURES = [
