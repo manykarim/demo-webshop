@@ -206,9 +206,16 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 Redeploy the previous **version tag** (`X.Y.Z` or `workshop-<id>`) or a digest
 recorded in section 8 — never `sha-<short>`, never `edge`. Then run the checks
 of 5.1: a tag must report its version in `/health`, a digest must report `dev`
-with the recorded digest and revision label. A rollback to a build from before
-workshop spaces (for example `0.2.0`) has no shared-mode guard, so a preset POST
-without a space answers 200 there instead of 401; that is expected of that build.
+with the recorded digest and revision label.
+
+**The shared-mode guard survives every rollback.** Workshop spaces entered the
+shop in `4fa4613`, before the first image was ever published, so every tag in
+the registry — `0.2.0` included — carries `spaces.py` and the guard. Shared mode
+itself is `WORKSHOP_SHARED_MODE` on the Coolify application, not something baked
+into the image, so it outlives the container. A preset POST without a space
+therefore answers **401 on every rollback target**, and a 200 means shared mode
+was switched off in the environment, not that an older build is running.
+Rehearsed against `0.2.0` on 2026-09-22 (section 8).
 
 ### 5.3 Reset one space
 
@@ -350,7 +357,10 @@ One row per rehearsed or executed procedure.
 
 | Date | Procedure | Deployment (image reference) | Outcome | Notes |
 |---|---|---|---|---|
-| | | | | |
+| 2026-09-22 | 5.3 Reset one space | `edge@sha256:5989aa13` | Pass | `load-001` was driven to stage `v3` with a cart item first; the reset reported 11 flags, 2 cart items and 8 orders removed, then status `v1` with an empty cart |
+| 2026-09-22 | 5.1 Redeploy | `edge@sha256:5989aa13` | Pass | Runtime orders 149 (`load-001`) and 148 (`imgfix-before`), both 200 before, answered 404 within 5 s of the deployment finishing; `load-001` read `v1` with an empty cart |
+| 2026-09-22 | 5.2 Roll back to a version tag | `ghcr.io/manykarim/demo-webshop:0.2.0` | Pass, against a corrected expectation | `/health` reported `0.2.0` after ~15 s. A preset POST without a space answered **401, not 200**: `0.2.0` is commit `06e6700`, which already contains `spaces.py`, and `WORKSHOP_SHARED_MODE` lives in the environment. Section 5.2 said otherwise and has been corrected |
+| 2026-09-22 | 5.2 Redeploy the candidate by digest | `edge@sha256:5989aa13` | Pass | `/health` reported `dev` after ~20 s, the application's image tag matched the recorded digest, a preset POST without a space returned 401 with `WWW-Authenticate: Bearer` and the `X-Workshop-Space` hint, the same POST in `load-001` returned 200, and `default` still read `v1` with no active bugs |
 
 ## 9. Checklists
 

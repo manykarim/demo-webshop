@@ -33,11 +33,13 @@
   - after an API add-to-cart and `POST /api/checkout/` under `smoke-a`, that order's `/api/docs/orders/{id}/invoice.pdf` returns 200 under `smoke-a`;
   - temporarily removing `WORKSHOP_ADMIN_TOKEN` makes the deployment fail with a log naming the variable, and the token is restored afterwards.
 - [x] 3.4 **(was `workshop-spaces` 14.2)** Run the early load test from outside the Coolify host network against the 14.1 deployment: headless, 40 users (or registered participants × 1.25 once known), at least 10 minutes, with `--csv` and `--html` reports kept outside git and attached to the PR. This run tunes the pool and is not capacity evidence. Verify: the run is recorded in the runbook's capacity record as kind `early` with image reference, commit, digest, users, duration, p95, 5xx count and leak count; tuned `pool_size` and `max_overflow` values, if changed, are committed to `backend/app/core/db.py`, the new commit's candidate is deployed by digest once its `main` run has published and checked as in 14.1, and the run is repeated; any `leak:` failure or 5xx is fixed as a defect before 14.4. A failed p95 here is a warning for 14.4, not a scale-out decision.
-- [ ] 3.5 **(was `workshop-spaces` 14.3)** Rehearse the runbook procedures on the candidate deployment and record each outcome in the rehearsal record. Verify:
+- [x] 3.5 **(was `workshop-spaces` 14.3)** Rehearse the runbook procedures on the candidate deployment and record each outcome in the rehearsal record. Verify:
   - resetting one space with the documented curl returns its status to `v1` with an empty cart;
   - after a redeploy, a runtime order created before is 404, and status for `load-001` shows `v1` with an empty cart;
   - rolling back to `0.2.0` (the tag deployed by `reproducible-image` task 10.4) makes `/health` report `0.2.0`, and a preset POST without a space no longer returns 401;
   - redeploying the candidate by its recorded digest makes `/health` report `dev` with the candidate digest again, and a preset POST without a space returns 401 with the space hint.
+
+  **Rehearsed 2026-09-22; one expectation was wrong and has been corrected.** The third bullet assumed `0.2.0` predates workshop spaces. It does not: `0.2.0` is commit `06e6700`, which already contains `backend/app/core/spaces.py`, and shared mode is `WORKSHOP_SHARED_MODE` on the Coolify application rather than anything baked into the image. Spaces entered in `4fa4613`, before the first publish, so every tag in the registry carries the guard. A preset POST without a space therefore answered **401 on `0.2.0` as well**, which is correct behaviour, not a rollback failure. The runbook's section 5.2 carried the same mistake and now states the rule and its reason. The other three bullets passed as written; all four outcomes are in the rehearsal record.
 
 ## 4. Audit review, gating and workshop tag
 
