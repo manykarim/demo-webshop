@@ -1,0 +1,31 @@
+# Development compose file: build the image from this checkout and run it the
+# way the published image runs (design D10).
+#
+# This file is for working on the shop. Workshop participants pull the published
+# image instead (see README.md), so nothing here pulls or names a registry.
+#
+# Requires Docker Compose v2.24 or newer for the optional `.env` below.
+
+services:
+  webshop:
+    build:
+      context: .
+      args:
+        # Builds from a checkout are unversioned; /health reports "dev".
+        # Published version tags are set by the release workflow, not here.
+        APP_VERSION: ${APP_VERSION:-dev}
+    ports:
+      - "9090:9090"
+    # Optional: your own AI credentials and CORS origins. Absent is fine.
+    env_file:
+      - path: .env
+        required: false
+    # Set after env_file on purpose: `environment` wins over `env_file`, so a
+    # .env written for source runs (for example ./workshop.db) cannot move the
+    # container's state out of /data, which is the only path uid 1000 may write.
+    environment:
+      WORKSHOP_DATABASE_URL: sqlite+aiosqlite:////data/workshop.db
+      WORKSHOP_PDF_OUTPUT_DIR: /data/pdfs
+    # No volume: state lives in the container's writable layer, so `docker
+    # compose restart` keeps the demo data and `--force-recreate` resets it.
+    # The health check comes from the image and is not overridden here.

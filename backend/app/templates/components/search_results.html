@@ -1,0 +1,15 @@
+{# The search results fragment (task 9.1, design Decision 6).
+
+   `GET /search/results` renders it with the same product-card macro as the
+   listing pages, so locator drift and the planted bugs reach every card a
+   shopper sees. It renders no grid wrapper of its own - the results container
+   on the page already carries `drift.cls("product-grid")` - and it renders the
+   no-results state itself, so `app.js` needs no empty-state hook. #}
+{% import "components/product_card.html" as cards %}
+{% if products %}
+{% for product in products %}
+{{ cards.product_card(product) }}
+{% endfor %}
+{% else %}
+<p class="empty-state">No products matched your query.</p>
+{% endif %}

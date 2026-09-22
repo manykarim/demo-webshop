@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
@@ -11,8 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from ..core.db import get_session
+from ..core.spaces import current_space
 from ..models.order import Order
 from ..models.user import Address, PaymentMethod, User
+from ..services.order_service import order_visible_in
 
 router = APIRouter()
 
@@ -40,14 +42,18 @@ def hash_password(password: str) -> str:
 async def login(
     payload: LoginRequest = Body(...),
     session: AsyncSession = Depends(get_session),
+    space: str = Depends(current_space),
 ):
+    # The order history is loaded through the one visibility rule (design D5),
+    # so a login in one space never lists another space's runtime orders while
+    # the seeded demo history stays visible everywhere.
     stmt = (
         select(User)
         .where(User.email == payload.email)
         .options(
             selectinload(User.addresses),
             selectinload(User.payment_methods).selectinload(PaymentMethod.billing_address),
-            selectinload(User.orders).selectinload(Order.items),
+            selectinload(User.orders.and_(order_visible_in(space))).selectinload(Order.items),
         )
     )
     result = await session.execute(stmt)
@@ -55,7 +61,9 @@ async def login(
     if not user or user.password_hash != hash_password(payload.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    expires_at = datetime.utcnow() + timedelta(hours=4)
+    # An aware UTC instant, serialized with the ``Z`` designator, so API
+    # consumers need not guess the zone of the expiry (story API-007 AC-2).
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
     token_source = f"{user.email}{expires_at.isoformat()}{secrets.token_hex(8)}"
     token = hashlib.sha256(token_source.encode()).hexdigest()
 

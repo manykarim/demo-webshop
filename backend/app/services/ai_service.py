@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
 import httpx
@@ -10,7 +11,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..core.feature_flags import list_feature_flags
 from .product_service import ProductService
 from .rag_index import RAGIndex
 
@@ -81,19 +81,20 @@ def build_prompt_header(question: str, mode: str) -> str:
 
 
 class AIService:
-    def __init__(self, session: AsyncSession):
+    """The product AI helper.
+
+    The workshop flags are handed in by the caller (``api/ai.py`` resolves them
+    through ``get_effective_flags``), so the helper answers in the space of the
+    request and never queries the flag tables itself (design D4).
+    """
+
+    def __init__(self, session: AsyncSession, flags: Mapping[str, bool] | None = None):
         self.session = session
         self.provider = settings.ai_provider
         self.model = settings.ai_model
         self._index = RAGIndex()
         self._mock_llm = MockLLM()
-        self._flags: Dict[str, bool] = {}
-
-    async def _load_flags(self) -> Dict[str, bool]:
-        """Load workshop feature flags."""
-        if not self._flags:
-            self._flags = await list_feature_flags(self.session)
-        return self._flags
+        self._flags: Dict[str, bool] = dict(flags or {})
 
     async def _ensure_index(self) -> None:
         if self._index._index:
@@ -222,8 +223,14 @@ class AIService:
     async def ask(self, question: str, mode: str = "summary", provider_override: Optional[str] = None) -> Dict[str, Any]:
         provider = provider_override or self.provider or "mock"
 
-        # Load workshop flags
-        flags = await self._load_flags()
+        # Shared instance: always the mock provider, whatever the deployment
+        # configured and whatever the caller asked for (design D6). Read here
+        # rather than in __init__, so the setting is evaluated per request.
+        if settings.shared_mode:
+            provider = "mock"
+
+        # The workshop flags of this request's space, handed in by the caller.
+        flags = self._flags
 
         # Workshop: Apply random delay if enabled
         if flags.get("AI_RANDOM_DELAYS"):

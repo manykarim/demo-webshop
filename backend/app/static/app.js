@@ -1,34 +1,60 @@
 (() => {
+  // Every lookup in this file is a stable hook (drift-coverage Decision 4):
+  // an ARIA role, an accessible name, an aria-controls relationship, a form
+  // action or field name, an href, or one of the four content data
+  // attributes (`data-product`, `data-product-name`, `data-category`,
+  // `data-chat-prompt`). No behaviour marker, no covered id or class, and the
+  // script never writes a `data-*` attribute or an id to the DOM: state lives
+  // in `is-*` classes, `hidden` and `aria-*`, and classes are changed only
+  // through `classList`, never by assigning `className`.
   const SESSION_COOKIE = "session_id";
+  const SESSION_COOKIE_DAYS = 30;
   const CART_ENDPOINT = "/api/cart";
   const CART_ITEMS_ENDPOINT = "/api/cart/items";
-  const CART_BADGE_SELECTOR = "[data-cart-count]";
-  const FLASH_ID = "flash-message";
-  const SESSION_COOKIE_DAYS = 30;
-  const SEARCH_ENDPOINT = "/api/search/";
-  const SEARCH_RESULTS_WRAPPER_SELECTOR = "[data-search-results-wrapper]";
-  const SEARCH_RESULTS_SELECTOR = "[data-search-results]";
-  const SEARCH_EMPTY_SELECTOR = "[data-search-empty]";
-  const SEARCH_CLEAR_SELECTOR = "[data-search-clear]";
+  const SEARCH_RESULTS_ENDPOINT = "/search/results";
   const SEARCH_SUGGEST_ENDPOINT = "/api/search/suggest";
   const AUTH_STORAGE_KEY = "flowline_auth_state";
-  const CHAT_WIDGET_SELECTOR = "[data-chat-widget]";
-  const CHAT_TOGGLE_SELECTOR = "[data-chat-toggle]";
-  const CHAT_CLOSE_SELECTOR = "[data-chat-close]";
-  const CHAT_FORM_SELECTOR = "[data-chat-form]";
-  const CHAT_MESSAGES_SELECTOR = "[data-chat-messages]";
-  const CHAT_BODY_OPEN_CLASS = "has-chat-open";
   const THEME_STORAGE_KEY = "flowline_theme";
-  const THEME_TOGGLE_SELECTOR = "[data-theme-toggle]";
-  const THEME_LABEL_SELECTOR = "[data-theme-label]";
-  const THEME_ICON_SUN = "[data-icon-sun]";
-  const THEME_ICON_MOON = "[data-icon-moon]";
   const THEME_DARK_CLASS = "theme-dark";
+  const CHAT_BODY_OPEN_CLASS = "has-chat-open";
+
+  const PRIMARY_NAV_SELECTOR = 'nav[aria-label="Primary navigation"]';
+  const NAV_TOGGLE_SELECTOR = ":scope > button[aria-controls]";
+  const STATUS_REGION_SELECTOR = '[role="status"]';
+  const LOGIN_BUTTON_SELECTOR = 'button[aria-haspopup="dialog"]';
+  const ACCOUNT_TRIGGER_SELECTOR = "button[aria-expanded][aria-controls]";
+  const LOGIN_CLOSE_LABEL = "Close login form";
+  const LOGOUT_LABEL = "Log out";
+  const ADDRESSES_LABEL = "Saved addresses";
+  const PAYMENTS_LABEL = "Payment methods";
+  const ORDERS_LABEL = "Recent orders";
+  const CHECKOUT_FORM_SELECTOR = 'form[action="/checkout"]';
+  const CHAT_LAUNCHER_SELECTOR = 'body > button[aria-haspopup="dialog"][aria-controls]';
+  const CHAT_CLOSE_LABEL = "Close AI assistant";
+  const CHAT_LOG_SELECTOR = '[role="log"]';
+  const CHAT_TEXTAREA_SELECTOR = 'textarea[name="question"]';
+  const SEARCH_FORM_SELECTOR = 'form[role="search"]';
+  const SEARCH_INPUT_SELECTOR = 'input[name="query"]';
+  const SEARCH_REGION_SELECTOR = '[role="region"][aria-label="Search results"]';
+  const MIN_PRICE_SLIDER_SELECTOR = 'input[type="range"][aria-label="Minimum price"]';
+  const MAX_PRICE_SLIDER_SELECTOR = 'input[type="range"][aria-label="Maximum price"]';
+  const OWN_TEMPLATES_SELECTOR = ":scope > template";
+  const OPTION_SELECTOR = '[role="option"]';
+
+  const FLASH_STATE_CLASSES = ["is-success", "is-error", "is-info"];
   const MOBILE_NAV_BREAKPOINT = 600;
   const mobileNavMediaQuery =
     typeof window !== "undefined" && typeof window.matchMedia === "function"
       ? window.matchMedia(`(max-width: ${MOBILE_NAV_BREAKPOINT}px)`)
       : null;
+
+  // "Already bound" bookkeeping lives in memory, never in the DOM
+  // (Decision 4): a marker attribute or an `is-bound` class would be a
+  // drift-proof locator.
+  const mobileNavBound = new WeakSet();
+  const themeBound = new WeakSet();
+  const chatBound = new WeakSet();
+  const chatPromptBound = new WeakSet();
 
   let flashTimer;
   let authState = null;
@@ -100,32 +126,60 @@
     applyAuthToCheckout();
   }
 
+  function ownTemplates(element) {
+    return element ? element.querySelectorAll(OWN_TEMPLATES_SELECTOR) : [];
+  }
+
+  function cloneTemplate(template) {
+    const root = template?.content?.firstElementChild;
+    return root ? root.cloneNode(true) : null;
+  }
+
+  // ---------------------------------------------------------------------
+  // The confirmation region: the only element with the role="status"
+  // attribute (task 8.2). Its state is `is-visible` plus one `is-*` variant.
+  // ---------------------------------------------------------------------
+
+  function getStatusRegion() {
+    return document.querySelector(STATUS_REGION_SELECTOR);
+  }
+
   function showFlash(message, variant = "info") {
-    const flash = document.getElementById(FLASH_ID);
-    if (!flash) return;
-    flash.textContent = message;
-    flash.className = `flash is-visible ${variant}`;
+    const region = getStatusRegion();
+    if (!region) return;
+    const state = `is-${variant}`;
+    region.textContent = message;
+    region.classList.remove(...FLASH_STATE_CLASSES);
+    region.classList.add("is-visible", FLASH_STATE_CLASSES.includes(state) ? state : "is-info");
     clearTimeout(flashTimer);
     flashTimer = window.setTimeout(() => {
-      flash.className = "flash";
-      flash.textContent = "";
+      region.classList.remove("is-visible", ...FLASH_STATE_CLASSES);
+      region.textContent = "";
     }, 3500);
   }
 
+  // ---------------------------------------------------------------------
+  // Cart badge and add to cart
+  // ---------------------------------------------------------------------
+
+  function getCartBadge() {
+    return document.querySelector(`nav a[href="/cart"] [aria-live]`);
+  }
+
   function updateCartBadge(state) {
-    const badge = document.querySelector(CART_BADGE_SELECTOR);
-    if (!badge) return;
+    const counter = getCartBadge();
+    if (!counter) return;
     const items = Array.isArray(state?.items) ? state.items : [];
     const quantity = items.reduce(
       (total, item) => total + Number(item?.quantity ?? 0),
       0,
     );
     if (quantity > 0) {
-      badge.textContent = quantity;
-      badge.classList.add("is-visible");
+      counter.textContent = quantity;
+      counter.classList.add("is-visible");
     } else {
-      badge.textContent = "";
-      badge.classList.remove("is-visible");
+      counter.textContent = "";
+      counter.classList.remove("is-visible");
     }
   }
 
@@ -150,12 +204,12 @@
       showFlash("Invalid product identifier.", "error");
       return;
     }
-    const quantityAttr = Number(button.dataset.quantity);
-    const quantity = Number.isFinite(quantityAttr) && quantityAttr > 0 ? quantityAttr : 1;
-    const productName =
-      button.dataset.productName ||
-      button.closest("[data-test='product-card']")?.querySelector(".product-card__title a")?.textContent ||
-      "Unknown product";
+    // No template renders a quantity attribute, so one item per click.
+    const quantity = 1;
+    const productName = button.dataset.productName || "Unknown product";
+    // The card variants render the button inside the card's <article>; the
+    // detail page's call to action does not sit in one.
+    const source = button.closest("article") ? "product_card" : "cta";
 
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
@@ -179,12 +233,12 @@
 
       const cartState = await response.json();
       updateCartBadge(cartState);
-      showFlash("Item added to cart.", "success");
+      showFlash(`${productName} added to cart.`, "success");
       window.analyticsTrack("add_to_cart", {
         product_id: productId,
         product_name: productName,
         quantity,
-        source: button.closest("[data-test='product-card']") ? "product_card" : "cta",
+        source,
       });
     } catch (error) {
       console.error(error);
@@ -204,79 +258,43 @@
     }
   }
 
-  function renderProductCards(products) {
-    return products
-      .map(
-        (product) => `
-      <article class="product-card" data-test="product-card">
-        <div class="product-card__media">
-          <picture>
-            <source srcset="${product.image_url}" type="image/jpeg" />
-            <img src="${product.image_url}" alt="${product.name} product photo" loading="lazy" />
-          </picture>
-          <button class="card-action" data-event="add_to_cart" data-product="${product.id}" data-product-name="${product.name}"
-            aria-label="Add ${product.name} to cart">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="9" cy="21" r="1"></circle>
-              <circle cx="20" cy="21" r="1"></circle>
-              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61H19a2 2 0 0 0 2-1.61L23 6H6"></path>
-            </svg>
-          </button>
-        </div>
-        <div class="product-card__body">
-          ${product.category
-            ? `<span class="category-badge" data-category="${String(product.category).toLowerCase()}">${product.category}</span>`
-            : ""
-          }
-          <h3 class="product-card__title"><a href="/products/${product.id}">${product.name}</a></h3>
-          ${product.description ? `<p class="product-card__description">${product.description}</p>` : ""
-          }
-        </div>
-        <div class="product-card__footer">
-          <span class="product-card__price">${formatCurrency(product.price)}</span>
-          <div class="product-card__cta">
-            <button class="button button--primary" data-event="add_to_cart" data-product="${product.id}" data-product-name="${product.name}"
-              aria-label="Add ${product.name} to cart">Add to cart</button>
-            <a class="button button--ghost" href="/products/${product.id}" aria-label="View ${product.name}">View ${product.name}</a>
-          </div>
-        </div>
-      </article>
-    `,
-      )
-      .join("");
-  }
+  // ---------------------------------------------------------------------
+  // Search: the results come from the server fragment (task 9.2)
+  // ---------------------------------------------------------------------
 
-  function getSearchElements() {
-    const wrapper = document.querySelector(SEARCH_RESULTS_WRAPPER_SELECTOR);
-    if (!wrapper) return null;
-    const list = wrapper.querySelector(SEARCH_RESULTS_SELECTOR);
-    const empty = wrapper.querySelector(SEARCH_EMPTY_SELECTOR);
-    if (!list || !empty) return null;
-    return { wrapper, list, empty };
+  function getSearchRegion() {
+    const region = document.querySelector(SEARCH_REGION_SELECTOR);
+    if (!region) return null;
+    const clearButton = region.querySelector("button[aria-controls]");
+    if (!clearButton) return null;
+    const list = document.getElementById(clearButton.getAttribute("aria-controls"));
+    if (!list) return null;
+    return { region, clearButton, list };
   }
 
   function attachSearch() {
-    const forms = document.querySelectorAll("[data-search-form]");
+    const forms = document.querySelectorAll(SEARCH_FORM_SELECTOR);
     if (!forms.length) return;
 
     const clearResults = () => {
-      const elements = getSearchElements();
-      if (!elements) return;
-      elements.wrapper.hidden = true;
-      elements.list.innerHTML = "";
-      elements.empty.hidden = true;
+      const elements = getSearchRegion();
+      if (elements) {
+        elements.region.hidden = true;
+        elements.list.replaceChildren();
+      }
       forms.forEach((form) => {
-        const input = form.querySelector("[data-search-input]");
+        const input = form.querySelector(SEARCH_INPUT_SELECTOR);
         if (input) input.value = "";
       });
     };
 
-    const clearButtons = document.querySelectorAll(SEARCH_CLEAR_SELECTOR);
-    clearButtons.forEach((button) => button.addEventListener("click", clearResults));
+    const elements = getSearchRegion();
+    if (elements) {
+      elements.clearButton.addEventListener("click", clearResults);
+    }
 
     forms.forEach((form) => {
-      const input = form.querySelector("[data-search-input]");
+      const input = form.querySelector(SEARCH_INPUT_SELECTOR);
       if (!input) return;
       setupTypeahead(form, input, clearResults);
 
@@ -300,76 +318,101 @@
     });
   }
 
-  async function performSearch(query) {
-    if (!query || query.length < 2) {
-      return { results: [] };
-    }
+  async function performAndRenderSearch(query) {
+    if (!query || query.length < 2) return;
+    const form = document.querySelector(SEARCH_FORM_SELECTOR);
+    if (form) form.classList.add("is-loading");
+    let markup = null;
     try {
-      const response = await fetch(`${SEARCH_ENDPOINT}?query=${encodeURIComponent(query)}`);
+      const response = await fetch(
+        `${SEARCH_RESULTS_ENDPOINT}?query=${encodeURIComponent(query)}`,
+      );
       if (!response.ok) {
         throw new Error("Unable to search catalogue.");
       }
-      return await response.json();
+      markup = await response.text();
     } catch (error) {
       console.error(error);
       showFlash(error.message || "Search failed, please try again.", "error");
-      return { results: [] };
+    } finally {
+      if (form) form.classList.remove("is-loading");
     }
+    if (markup === null) return;
+    const elements = getSearchRegion();
+    if (!elements) return;
+    // The fragment is parsed in body context, so its <article> cards land as
+    // real nodes; it also carries its own empty state (task 9.1).
+    elements.list.replaceChildren(document.createRange().createContextualFragment(markup));
+    elements.region.hidden = false;
   }
 
-  async function performAndRenderSearch(query) {
-    if (!query || query.length < 2) return;
-    const form = document.querySelector("[data-search-form]");
-    if (form) form.classList.add("is-loading");
-    const data = await performSearch(query);
-    if (form) form.classList.remove("is-loading");
-    const elements = getSearchElements();
-    if (!elements) return;
-    const products = data?.results ?? [];
-    elements.wrapper.hidden = false;
-    if (products.length) {
-      elements.list.innerHTML = renderProductCards(products);
-      elements.empty.hidden = true;
-    } else {
-      elements.list.innerHTML = "";
-      elements.empty.hidden = false;
-    }
+  // ---------------------------------------------------------------------
+  // Sign-in modal (task 8.3)
+  // ---------------------------------------------------------------------
+
+  function getPrimaryNav() {
+    return document.querySelector(PRIMARY_NAV_SELECTOR);
+  }
+
+  function getLoginButton() {
+    const nav = getPrimaryNav();
+    return nav ? nav.querySelector(LOGIN_BUTTON_SELECTOR) : null;
+  }
+
+  function getAuthOverlay() {
+    const loginButton = getLoginButton();
+    if (!loginButton) return null;
+    // Works while the button is hidden for a signed-in user.
+    return document.getElementById(loginButton.getAttribute("aria-controls"));
+  }
+
+  function getAuthElements() {
+    const overlay = getAuthOverlay();
+    if (!overlay) return null;
+    const dialog = overlay.querySelector('[role="dialog"]');
+    if (!dialog) return null;
+    const form = dialog.querySelector("form");
+    return {
+      overlay,
+      dialog,
+      form,
+      alert: form ? form.querySelector('[role="alert"]') : null,
+      closeButton: dialog.querySelector(`[aria-label="${LOGIN_CLOSE_LABEL}"]`),
+    };
   }
 
   function openLoginModal() {
-    const modal = document.querySelector("[data-auth-modal]");
-    if (!modal) return;
-    modal.hidden = false;
+    const elements = getAuthElements();
+    if (!elements) return;
+    elements.overlay.hidden = false;
     document.body.style.overflow = "hidden";
-    const emailInput = modal.querySelector("#auth-email");
+    const emailInput = elements.form?.elements?.email;
     if (emailInput) {
       window.requestAnimationFrame(() => emailInput.focus());
     }
   }
 
   function closeLoginModal() {
-    const modal = document.querySelector("[data-auth-modal]");
-    if (!modal) return;
-    modal.hidden = true;
+    const elements = getAuthElements();
+    if (!elements) return;
+    elements.overlay.hidden = true;
     document.body.style.overflow = "";
-    const alert = modal.querySelector("[data-auth-alert]");
-    if (alert) {
-      alert.hidden = true;
-      alert.textContent = "";
+    if (elements.alert) {
+      elements.alert.hidden = true;
+      elements.alert.textContent = "";
     }
-    const form = modal.querySelector("[data-auth-form]");
-    if (form) {
-      form.reset();
-      form.classList.remove("is-loading");
+    if (elements.form) {
+      elements.form.reset();
+      elements.form.classList.remove("is-loading");
     }
   }
 
   async function handleLoginSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    const email = form.email.value.trim();
-    const password = form.password.value;
-    const alert = form.querySelector("[data-auth-alert]");
+    const email = form.elements.email.value.trim();
+    const password = form.elements.password.value;
+    const alert = form.querySelector('[role="alert"]');
     if (alert) {
       alert.hidden = true;
       alert.textContent = "";
@@ -402,124 +445,172 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Account menu (task 8.3)
+  // ---------------------------------------------------------------------
+
+  function getAccountElements() {
+    const navElements = getMobileNavElements();
+    if (!navElements) return null;
+    // Unique inside the menu: the nav's own toggle carries the same pair but
+    // is a direct child of <nav>, the theme toggle carries aria-pressed, and
+    // the "Log in" button carries no aria-expanded (task 8.1).
+    const trigger = navElements.menu.querySelector(ACCOUNT_TRIGGER_SELECTOR);
+    if (!trigger) return null;
+    const panel = document.getElementById(trigger.getAttribute("aria-controls"));
+    if (!panel) return null;
+    return { trigger, panel };
+  }
+
   function updateAuthUI() {
-    const region = document.querySelector("[data-auth-region]");
-    if (!region) return;
-    const loginBtn = region.querySelector("[data-auth-login]");
-    const menu = region.querySelector("[data-auth-menu]");
-    const triggerName = region.querySelector("[data-auth-user-name]");
-    const panel = region.querySelector("[data-auth-menu-panel]");
+    const loginButton = getLoginButton();
+    const account = getAccountElements();
+    if (!loginButton && !account) return;
 
     if (authState) {
-      if (loginBtn) loginBtn.hidden = true;
-      if (menu) menu.hidden = false;
-      if (triggerName) {
-        const firstName = authState.user.full_name.split(" ")[0];
-        triggerName.textContent = `Hi, ${firstName}`;
+      if (loginButton) loginButton.hidden = true;
+      if (account) {
+        account.trigger.hidden = false;
+        const name = account.trigger.querySelector("span");
+        if (name) {
+          const firstName = authState.user.full_name.split(" ")[0];
+          name.textContent = `Hi, ${firstName}`;
+        }
+        renderAccountMenu();
+        setAccountPanelOpen(false);
       }
-      renderAccountMenu();
-      if (panel) panel.hidden = true;
     } else {
-      if (loginBtn) loginBtn.hidden = false;
-      if (menu) menu.hidden = true;
+      if (loginButton) loginButton.hidden = false;
+      if (account) {
+        account.trigger.hidden = true;
+        setAccountPanelOpen(false);
+      }
     }
+  }
+
+  function fillAccountList(panel, label, entries, emptyText, fill) {
+    const list = panel.querySelector(`ul[aria-label="${label}"]`);
+    if (!list) return;
+    const template = ownTemplates(list)[0] || null;
+    const items = [];
+    if (!entries.length) {
+      const empty = document.createElement("li");
+      empty.textContent = emptyText;
+      items.push(empty);
+    } else if (template) {
+      entries.forEach((entry) => {
+        const item = cloneTemplate(template);
+        if (!item) return;
+        fill(item, entry);
+        items.push(item);
+      });
+    }
+    // The shell stays in the list, so the next render can clone it again.
+    list.replaceChildren(...(template ? [template, ...items] : items));
   }
 
   function renderAccountMenu() {
-    const region = document.querySelector("[data-auth-region]");
-    if (!region || !authState) return;
-    const addressesList = region.querySelector("[data-auth-addresses]");
-    const paymentsList = region.querySelector("[data-auth-payments]");
-    const ordersList = region.querySelector("[data-auth-orders]");
+    const account = getAccountElements();
+    if (!account || !authState) return;
+    const { panel } = account;
 
-    if (addressesList) {
-      if (authState.addresses?.length) {
-        addressesList.innerHTML = authState.addresses
-          .map((addr) => {
-            const label = addr.label ? `${addr.label}: ` : "";
-            return `<li>${label}${addr.line1}, ${addr.city}, ${addr.state} ${addr.postal_code}</li>`;
-          })
-          .join("");
-      } else {
-        addressesList.innerHTML = "<li>No saved addresses yet.</li>";
-      }
-    }
+    fillAccountList(
+      panel,
+      ADDRESSES_LABEL,
+      authState.addresses ?? [],
+      "No saved addresses yet.",
+      (item, address) => {
+        const label = address.label ? `${address.label}: ` : "";
+        item.textContent = `${label}${address.line1}, ${address.city}, ${address.state} ${address.postal_code}`;
+      },
+    );
 
-    if (paymentsList) {
-      if (authState.payment_methods?.length) {
-        paymentsList.innerHTML = authState.payment_methods
-          .map((pm) => `<li>${pm.display} &middot; Expires ${pm.exp_month}/${pm.exp_year}</li>`)
-          .join("");
-      } else {
-        paymentsList.innerHTML = "<li>No saved payment methods.</li>";
-      }
-    }
+    fillAccountList(
+      panel,
+      PAYMENTS_LABEL,
+      authState.payment_methods ?? [],
+      "No saved payment methods.",
+      (item, method) => {
+        item.textContent = `${method.display} · Expires ${method.exp_month}/${method.exp_year}`;
+      },
+    );
 
-    if (ordersList) {
-      if (authState.orders?.length) {
-        ordersList.innerHTML = authState.orders
-          .map(
-            (order) => `<li>
-              <strong>${order.order_number}</strong> · ${formatCurrency(order.total)} · ${order.status}
-              <div class="account-dropdown__links">
-                <a href="${order.invoice_url}" target="_blank" rel="noopener">Invoice</a>
-                <a href="${order.summary_url}" target="_blank" rel="noopener">Summary</a>
-              </div>
-            </li>`,
-          )
-          .join("");
-      } else {
-        ordersList.innerHTML = "<li>No orders yet.</li>";
-      }
-    }
+    fillAccountList(
+      panel,
+      ORDERS_LABEL,
+      authState.orders ?? [],
+      "No orders yet.",
+      (item, order) => {
+        const number = item.querySelector("strong");
+        if (number) number.textContent = order.order_number;
+        const meta = item.querySelector("span");
+        if (meta) {
+          meta.textContent = ` · ${formatCurrency(order.total)} · ${order.status}`;
+        }
+        const links = item.querySelectorAll("a");
+        if (links[0]) links[0].href = order.invoice_url;
+        if (links[1]) links[1].href = order.summary_url;
+      },
+    );
   }
 
+  function setAccountPanelOpen(forceState) {
+    const account = getAccountElements();
+    if (!account) return;
+    const shouldOpen = typeof forceState === "boolean" ? forceState : account.panel.hidden;
+    account.panel.hidden = !shouldOpen;
+    account.trigger.setAttribute("aria-expanded", String(shouldOpen));
+  }
+
+  // ---------------------------------------------------------------------
+  // Checkout autofill (task 8.3)
+  // ---------------------------------------------------------------------
+
   function applyAuthToCheckout() {
-    const form = document.querySelector(".checkout-form");
-    const note = document.querySelector("[data-auth-note]");
+    const form = document.querySelector(CHECKOUT_FORM_SELECTOR);
     if (!form) return;
+    // The form's only direct-child <p>: the signed-in note, whose `hidden`
+    // carries the signed-in state.
+    const note = form.querySelector(":scope > p");
     if (!authState) {
       if (note) note.hidden = true;
       return;
     }
 
-    const emailInput = form.querySelector("#checkout-email");
-    const nameInput = form.querySelector("#checkout-name");
-    const addressInput = form.querySelector("#checkout-address");
-    const teamSize = form.querySelector("#checkout-team-size");
-
-    if (emailInput) emailInput.value = authState.user.email;
-    if (nameInput) nameInput.value = authState.user.full_name;
+    const fields = form.elements;
+    if (fields.email) fields.email.value = authState.user.email;
+    if (fields.name) fields.name.value = authState.user.full_name;
 
     const primaryAddress = authState.addresses?.[0];
-    if (primaryAddress && addressInput) {
-      addressInput.value = `${primaryAddress.line1}${primaryAddress.line2 ? `, ${primaryAddress.line2}` : ""}\n${primaryAddress.city}, ${primaryAddress.state} ${primaryAddress.postal_code}`;
+    if (primaryAddress && fields.address) {
+      fields.address.value = `${primaryAddress.line1}${primaryAddress.line2 ? `, ${primaryAddress.line2}` : ""}\n${primaryAddress.city}, ${primaryAddress.state} ${primaryAddress.postal_code}`;
     }
 
-    if (teamSize && !teamSize.value) {
-      teamSize.value = "10";
+    if (fields.team_size && !fields.team_size.value) {
+      fields.team_size.value = "10";
     }
 
     if (note) {
-      const nameSpan = note.querySelector("[data-auth-note-name]");
+      // The name goes into the note's only <span>, so the note keeps its
+      // whole sentence.
+      const nameSpan = note.querySelector("span");
       if (nameSpan) nameSpan.textContent = authState.user.full_name;
       note.hidden = false;
     }
   }
 
-  function toggleAccountPanel(forceState) {
-    const panel = document.querySelector("[data-auth-menu-panel]");
-    if (!panel) return;
-    const shouldOpen = typeof forceState === "boolean" ? forceState : panel.hidden;
-    panel.hidden = !shouldOpen;
-  }
+  // ---------------------------------------------------------------------
+  // Mobile navigation (task 8.2)
+  // ---------------------------------------------------------------------
 
   function getMobileNavElements() {
-    const nav = document.querySelector(".site-nav");
+    const nav = getPrimaryNav();
     if (!nav) return null;
-    const toggle = nav.querySelector("[data-nav-toggle]");
-    const menu = nav.querySelector("[data-nav-menu]");
-    if (!toggle || !menu) return null;
+    // The nav's only direct-child button (task 8.1).
+    const toggle = nav.querySelector(NAV_TOGGLE_SELECTOR);
+    if (!toggle) return null;
+    const menu = document.getElementById(toggle.getAttribute("aria-controls"));
+    if (!menu) return null;
     return { nav, toggle, menu };
   }
 
@@ -573,7 +664,7 @@
     nav.classList.remove("is-open");
     syncMenuForViewport();
 
-    if (!nav.dataset.mobileNavBound) {
+    if (!mobileNavBound.has(nav)) {
       const handleViewportChange = () => {
         if (nav.classList.contains("is-open") && !isMobileViewport()) {
           setMobileNavOpen(false);
@@ -584,16 +675,19 @@
       if (mobileNavMediaQuery) {
         mobileNavMediaQuery.addEventListener("change", handleViewportChange);
       }
-      nav.dataset.mobileNavBound = "true";
+      mobileNavBound.add(nav);
     }
   }
+
+  // ---------------------------------------------------------------------
+  // Document-level delegation
+  // ---------------------------------------------------------------------
 
   function handleDocumentClick(event) {
     const navElements = getMobileNavElements();
     if (navElements) {
       const { nav, toggle, menu } = navElements;
-      const toggleButton = event.target.closest("[data-nav-toggle]");
-      if (toggleButton) {
+      if (toggle.contains(event.target)) {
         event.preventDefault();
         const isOpen = !nav.classList.contains("is-open");
         setMobileNavOpen(isOpen);
@@ -611,37 +705,43 @@
       }
     }
 
-    const loginBtn = event.target.closest("[data-auth-login]");
-    if (loginBtn) {
+    const loginButton = getLoginButton();
+    if (loginButton && loginButton.contains(event.target)) {
       event.preventDefault();
       openLoginModal();
       return;
     }
 
-    const closeBtn = event.target.closest("[data-auth-close]");
-    if (closeBtn || event.target.matches("[data-auth-modal]")) {
-      event.preventDefault();
-      closeLoginModal();
-      return;
+    const authElements = getAuthElements();
+    if (authElements) {
+      const closeButton = authElements.closeButton;
+      // A backdrop click is a click on the overlay itself.
+      if ((closeButton && closeButton.contains(event.target)) || event.target === authElements.overlay) {
+        event.preventDefault();
+        closeLoginModal();
+        return;
+      }
     }
 
-    const logoutBtn = event.target.closest("[data-auth-logout]");
-    if (logoutBtn) {
-      event.preventDefault();
-      clearAuth();
-      showFlash("Signed out successfully.", "info");
-      return;
-    }
+    const account = getAccountElements();
+    if (account) {
+      const logoutButton = account.panel.querySelector(`button[aria-label="${LOGOUT_LABEL}"]`);
+      if (logoutButton && logoutButton.contains(event.target)) {
+        event.preventDefault();
+        clearAuth();
+        showFlash("Signed out successfully.", "info");
+        return;
+      }
 
-    const toggleBtn = event.target.closest("[data-auth-menu-toggle]");
-    if (toggleBtn) {
-      event.preventDefault();
-      toggleAccountPanel();
-      return;
-    }
+      if (account.trigger.contains(event.target)) {
+        event.preventDefault();
+        setAccountPanelOpen();
+        return;
+      }
 
-    if (!event.target.closest("[data-auth-region]")) {
-      toggleAccountPanel(false);
+      if (!account.panel.contains(event.target) && !account.trigger.contains(event.target)) {
+        setAccountPanelOpen(false);
+      }
     }
 
     const button = event.target.closest("button[data-product]");
@@ -651,15 +751,14 @@
     }
 
     if (isChatOpen) {
-      const { widget } = getChatElements();
-      const pushButton = event.target.closest(CHAT_TOGGLE_SELECTOR);
-      const closeButton = event.target.closest(CHAT_CLOSE_SELECTOR);
-      if (closeButton) {
+      const { widget, launcher, closeButton } = getChatElements();
+      if (closeButton && closeButton.contains(event.target)) {
         event.preventDefault();
         toggleChat(false, { focusLauncher: true });
         return;
       }
-      if (widget && !widget.contains(event.target) && !pushButton) {
+      const onLauncher = launcher && launcher.contains(event.target);
+      if (widget && !widget.contains(event.target) && !onLauncher) {
         toggleChat(false);
         return;
       }
@@ -679,25 +778,44 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Chat widget (task 8.4)
+  // ---------------------------------------------------------------------
+
   function getChatElements() {
-    const widget = document.querySelector(CHAT_WIDGET_SELECTOR);
-    const launcher = document.querySelector(CHAT_TOGGLE_SELECTOR);
-    const closeButton = widget?.querySelector(CHAT_CLOSE_SELECTOR);
-    return { widget, launcher, closeButton };
+    // A direct child of <body>, unlike the "Log in" button, which carries the
+    // same attribute pair inside the nav (task 8.1).
+    const launcher = document.querySelector(CHAT_LAUNCHER_SELECTOR);
+    if (!launcher) return { widget: null, launcher: null, closeButton: null };
+    const widget = document.getElementById(launcher.getAttribute("aria-controls"));
+    return {
+      widget,
+      launcher,
+      closeButton: widget ? widget.querySelector(`[aria-label="${CHAT_CLOSE_LABEL}"]`) : null,
+    };
+  }
+
+  function getChatLog() {
+    const { widget } = getChatElements();
+    return widget ? widget.querySelector(CHAT_LOG_SELECTOR) : null;
+  }
+
+  function getChatTextarea() {
+    const { widget } = getChatElements();
+    return widget ? widget.querySelector(CHAT_TEXTAREA_SELECTOR) : null;
+  }
+
+  function getChatForm() {
+    const textarea = getChatTextarea();
+    return textarea ? textarea.form : null;
   }
 
   function ensureChatWidgetSetup() {
     const { widget, launcher, closeButton } = getChatElements();
     if (!widget || !launcher) return;
 
-    if (!widget.id) {
-      widget.id = "chat-widget";
-    }
-
     launcher.hidden = false;
-    launcher.setAttribute("aria-controls", widget.id);
     launcher.setAttribute("aria-expanded", String(isChatOpen));
-    launcher.setAttribute("aria-haspopup", "dialog");
 
     widget.setAttribute("aria-hidden", String(!isChatOpen));
     if (!widget.getAttribute("role")) {
@@ -709,15 +827,15 @@
       widget.removeAttribute("inert");
     }
 
-    if (!launcher.dataset.chatBound) {
+    if (!chatBound.has(launcher)) {
       launcher.addEventListener("click", handleChatToggleClick);
       launcher.addEventListener("keydown", handleChatToggleKeydown);
-      launcher.dataset.chatBound = "true";
+      chatBound.add(launcher);
     }
 
-    if (closeButton && !closeButton.dataset.chatBound) {
+    if (closeButton && !chatBound.has(closeButton)) {
       closeButton.addEventListener("click", handleChatCloseClick);
-      closeButton.dataset.chatBound = "true";
+      chatBound.add(closeButton);
     }
 
     if (!chatKeydownListenerAttached) {
@@ -745,8 +863,8 @@
   function handleChatKeydown(event) {
     if (event.key !== "Escape" || !isChatOpen) return;
     const { widget } = getChatElements();
-    const authModal = document.querySelector("[data-auth-modal]");
-    if (authModal && !authModal.hidden) {
+    const overlay = getAuthOverlay();
+    if (overlay && !overlay.hidden) {
       return;
     }
     const activeElement = document.activeElement;
@@ -761,41 +879,6 @@
     event.preventDefault();
     toggleChat(false, { focusLauncher: true });
   }
-
-  async function init() {
-    authState = loadAuth();
-    updateAuthUI();
-    applyAuthToCheckout();
-    initializeTheme();
-    initializeFilters();
-    setupMobileNav();
-
-    document.addEventListener("click", handleDocumentClick);
-    document.addEventListener("keydown", handleDocumentKeydown);
-    const loginForm = document.querySelector("[data-auth-form]");
-    if (loginForm) {
-      loginForm.addEventListener("submit", handleLoginSubmit);
-    }
-
-    attachSearch();
-    await fetchCartState();
-
-    ensureChatWidgetSetup();
-
-    const chatForm = document.querySelector(CHAT_FORM_SELECTOR);
-    if (chatForm) {
-      chatForm.addEventListener("submit", handleChatSubmit);
-      const chatTextarea = chatForm.querySelector("textarea[name='question']");
-      if (chatTextarea && !chatTextarea.dataset.chatBound) {
-        chatTextarea.addEventListener("keydown", handleChatTextareaKeydown);
-        chatTextarea.dataset.chatBound = "true";
-      }
-    }
-
-    attachInspirationPrompts();
-  }
-
-  init();
 
   function toggleChat(forceOpen, options = {}) {
     const { focusLauncher = false } = options;
@@ -812,7 +895,7 @@
       widget.removeAttribute("inert");
       document.body.style.setProperty("overflow", "hidden");
       scrollChatToBottom();
-      const textarea = widget.querySelector("textarea");
+      const textarea = getChatTextarea();
       if (textarea) {
         window.requestAnimationFrame(() => textarea.focus());
       }
@@ -828,37 +911,41 @@
   }
 
   function appendChatMessage(role, text, options = {}) {
-    const container = document.querySelector(CHAT_MESSAGES_SELECTOR);
-    if (!container) return;
-    const wrapper = document.createElement("div");
-    wrapper.className = `chat-message chat-message--${role}`;
+    const log = getChatLog();
+    if (!log) return null;
+    // Two shells in a fixed order: the user message first, the assistant
+    // message second (task 9.3). Their classes come from the template.
+    const templates = ownTemplates(log);
+    if (templates.length !== 2) return null;
+    const message = cloneTemplate(role === "user" ? templates[0] : templates[1]);
+    if (!message) return null;
     if (options.loading) {
-      wrapper.classList.add("chat-message--loading");
+      message.setAttribute("aria-busy", "true");
     } else {
-      wrapper.textContent = text;
+      message.textContent = text;
     }
-    container.appendChild(wrapper);
+    log.appendChild(message);
     scrollChatToBottom();
-    return wrapper;
+    return message;
   }
 
   function scrollChatToBottom() {
-    const container = document.querySelector(CHAT_MESSAGES_SELECTOR);
-    if (!container) return;
-    container.scrollTop = container.scrollHeight;
+    const log = getChatLog();
+    if (!log) return;
+    log.scrollTop = log.scrollHeight;
   }
 
   async function handleChatSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    const textarea = form.querySelector("textarea[name='question']");
+    const textarea = form.querySelector(CHAT_TEXTAREA_SELECTOR);
     if (!textarea) return;
     const question = textarea.value.trim();
     if (!question) return;
 
     textarea.value = "";
-    const userMessageEl = appendChatMessage("user", question);
-    const loadingEl = appendChatMessage("assistant", "", { loading: true });
+    appendChatMessage("user", question);
+    const pending = appendChatMessage("assistant", "", { loading: true });
 
     try {
       const response = await fetch("/api/ai/ask", {
@@ -876,14 +963,17 @@
         data?.answer?.answer ||
         (Array.isArray(data?.answer?.highlights) ? data.answer.highlights.join("\n") : null) ||
         "I'm not sure how to help with that right now.";
-      loadingEl.classList.remove("chat-message--loading");
-      loadingEl.textContent = answer;
+      if (pending) {
+        pending.removeAttribute("aria-busy");
+        pending.textContent = answer;
+      }
       chatHistory.push({ role: "user", content: question }, { role: "assistant", content: answer });
     } catch (error) {
       console.error(error);
-      loadingEl.classList.remove("chat-message--loading");
-      loadingEl.classList.add("chat-message--assistant");
-      loadingEl.textContent = error.message || "I ran into an issue answering that.";
+      if (pending) {
+        pending.removeAttribute("aria-busy");
+        pending.textContent = error.message || "I ran into an issue answering that.";
+      }
     }
   }
 
@@ -900,6 +990,15 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Theme toggle (task 8.2). The sun/moon swap lives in the stylesheet.
+  // ---------------------------------------------------------------------
+
+  function getThemeToggle() {
+    const nav = getPrimaryNav();
+    return nav ? nav.querySelector("button[aria-pressed]") : null;
+  }
+
   function initializeTheme() {
     const saved = getStoredTheme();
     const prefersDark = window.matchMedia
@@ -908,13 +1007,13 @@
     const startingTheme = saved || (prefersDark ? "dark" : "light");
     applyTheme(startingTheme, { persist: !!saved });
 
-    const toggle = document.querySelector(THEME_TOGGLE_SELECTOR);
-    if (toggle && !toggle.dataset.themeBound) {
+    const toggle = getThemeToggle();
+    if (toggle && !themeBound.has(toggle)) {
       toggle.addEventListener("click", () => {
         const nextTheme = currentTheme === "dark" ? "light" : "dark";
         applyTheme(nextTheme, { persist: true });
       });
-      toggle.dataset.themeBound = "true";
+      themeBound.add(toggle);
     }
 
     if (window.matchMedia) {
@@ -943,30 +1042,15 @@
   }
 
   function updateThemeToggleUI(theme) {
-    const toggle = document.querySelector(THEME_TOGGLE_SELECTOR);
+    const toggle = getThemeToggle();
     if (!toggle) return;
-    const label = toggle.querySelector(THEME_LABEL_SELECTOR);
-    const sunIcon = toggle.querySelector(THEME_ICON_SUN);
-    const moonIcon = toggle.querySelector(THEME_ICON_MOON);
     const isDark = theme === "dark";
     toggle.setAttribute("aria-pressed", String(isDark));
     toggle.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+    // The button's only <span> (task 8.1).
+    const label = toggle.querySelector("span");
     if (label) {
       label.textContent = isDark ? "Light mode" : "Dark mode";
-    }
-    if (sunIcon) {
-      if (isDark) {
-        sunIcon.setAttribute("hidden", "");
-      } else {
-        sunIcon.removeAttribute("hidden");
-      }
-    }
-    if (moonIcon) {
-      if (isDark) {
-        moonIcon.removeAttribute("hidden");
-      } else {
-        moonIcon.setAttribute("hidden", "");
-      }
     }
   }
 
@@ -990,13 +1074,15 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Product filters (task 8.4)
+  // ---------------------------------------------------------------------
+
   function initializeFilters() {
-    const form = document.querySelector("[data-filter-form]");
+    const priceInput = document.querySelector('input[name="price_min"]');
+    const form = priceInput ? priceInput.form : null;
     if (!form) return;
-    const priceWrapper = form.querySelector("[data-price-slider]");
-    if (priceWrapper) {
-      setupPriceSlider(priceWrapper, form);
-    }
+    setupPriceSlider(form);
     const selectableChips = form.querySelectorAll(".chip--selectable");
     selectableChips.forEach((chip) => {
       const input = chip.querySelector('input[type="checkbox"]');
@@ -1009,20 +1095,34 @@
     });
   }
 
-  function setupPriceSlider(wrapper, form) {
-    const minSlider = wrapper.querySelector('[data-price-slider="min"]');
-    const maxSlider = wrapper.querySelector('[data-price-slider="max"]');
-    const minOutput = wrapper.querySelector('[data-price-output="min"]');
-    const maxOutput = wrapper.querySelector('[data-price-output="max"]');
-    const minInput = wrapper.querySelector('input[name="price_min"]');
-    const maxInput = wrapper.querySelector('input[name="price_max"]');
-    if (!minSlider || !maxSlider || !minOutput || !maxOutput || !minInput || !maxInput) {
+  function setupPriceSlider(form) {
+    const minSlider = form.querySelector(MIN_PRICE_SLIDER_SELECTOR);
+    const maxSlider = form.querySelector(MAX_PRICE_SLIDER_SELECTOR);
+    const minInput = form.elements.price_min;
+    const maxInput = form.elements.price_max;
+    if (!minSlider || !maxSlider || !minInput || !maxInput) {
       return;
     }
 
+    // Each output points at its slider with `for`.
+    let minOutput = null;
+    let maxOutput = null;
+    form.querySelectorAll("output[for]").forEach((output) => {
+      const slider = document.getElementById(output.htmlFor);
+      if (slider === minSlider) {
+        minOutput = output;
+      } else if (slider === maxSlider) {
+        maxOutput = output;
+      }
+    });
+    if (!minOutput || !maxOutput) {
+      return;
+    }
+
+    // The reset defaults are the sliders' own bounds.
     const defaults = {
-      min: Number(wrapper.dataset.priceMinDefault || minSlider.min || 0),
-      max: Number(wrapper.dataset.priceMaxDefault || maxSlider.max || 0),
+      min: Number(minSlider.min || 0),
+      max: Number(maxSlider.max || 0),
     };
 
     const syncOutputs = () => {
@@ -1030,10 +1130,11 @@
       const maxValue = Math.max(Number(maxSlider.value), minValue);
       minSlider.value = String(minValue);
       maxSlider.value = String(maxValue);
-      minOutput.textContent = Math.round(minValue);
-      maxOutput.textContent = Math.round(maxValue);
-      minInput.value = String(minValue);
-      maxInput.value = String(maxValue);
+      // Prices are shown and submitted in cents, so the lowest price stays in range.
+      minOutput.textContent = minValue.toFixed(2);
+      maxOutput.textContent = maxValue.toFixed(2);
+      minInput.value = minValue.toFixed(2);
+      maxInput.value = maxValue.toFixed(2);
     };
 
     minSlider.addEventListener("input", syncOutputs);
@@ -1050,39 +1151,43 @@
     syncOutputs();
   }
 
-  function setupTypeahead(form, input, clearResults) {
-    const field = form.querySelector(".form-field");
-    if (!field) return;
+  // ---------------------------------------------------------------------
+  // Search typeahead (tasks 8.4 and 9.3)
+  // ---------------------------------------------------------------------
 
-    const dropdown = document.createElement("div");
-    dropdown.className = "search-suggest";
-    dropdown.hidden = true;
-    const list = document.createElement("ul");
-    list.className = "search-suggest__list";
-    list.setAttribute("role", "listbox");
-    const listboxId = uniqueId("suggestions");
-    list.id = listboxId;
-    const emptyState = document.createElement("div");
-    emptyState.className = "search-suggest__empty";
-    emptyState.textContent = "No results";
-    emptyState.hidden = true;
-    dropdown.append(list, emptyState);
-    field.appendChild(dropdown);
+  function setupTypeahead(form, input, clearResults) {
+    // The anchor is the field's own <label>, which holds the dropdown shell.
+    const anchor = input.closest("label");
+    if (!anchor) return;
+    const anchorTemplates = ownTemplates(anchor);
+    if (anchorTemplates.length !== 1) return;
+    const dropdown = cloneTemplate(anchorTemplates[0]);
+    if (!dropdown) return;
+
+    const list = dropdown.querySelector('[role="listbox"]');
+    const emptyState = dropdown.querySelector(".search-suggest__empty");
+    if (!list || !emptyState) return;
+    const optionTemplates = ownTemplates(list);
+    if (optionTemplates.length !== 1) return;
+    const optionTemplate = optionTemplates[0];
+    anchor.appendChild(dropdown);
 
     input.setAttribute("aria-expanded", "false");
     input.setAttribute("aria-autocomplete", "list");
-    input.setAttribute("aria-controls", listboxId);
+    input.setAttribute("aria-controls", list.id);
 
     let items = [];
     let activeIndex = -1;
     let debounceTimer;
+
+    const options = () => list.querySelectorAll(OPTION_SELECTOR);
 
     const hide = () => {
       dropdown.hidden = true;
       input.setAttribute("aria-expanded", "false");
       items = [];
       activeIndex = -1;
-      list.innerHTML = "";
+      list.replaceChildren(optionTemplate);
       emptyState.hidden = true;
     };
 
@@ -1098,8 +1203,7 @@
       } else {
         activeIndex = index;
       }
-      const options = list.querySelectorAll(".search-suggest__item");
-      options.forEach((option, optionIndex) => {
+      options().forEach((option, optionIndex) => {
         const isActive = optionIndex === activeIndex;
         option.classList.toggle("is-active", isActive);
         option.setAttribute("aria-selected", String(isActive));
@@ -1108,8 +1212,8 @@
 
     const renderSuggestions = (query, results) => {
       items = results;
-      list.innerHTML = "";
       if (!results.length) {
+        list.replaceChildren(optionTemplate);
         emptyState.hidden = false;
         dropdown.hidden = false;
         input.setAttribute("aria-expanded", "true");
@@ -1118,19 +1222,18 @@
       }
 
       emptyState.hidden = true;
-      const fragment = document.createDocumentFragment();
-      results.forEach((item, index) => {
-        const li = document.createElement("li");
-        li.className = "search-suggest__item";
-        li.setAttribute("role", "option");
-        li.dataset.index = String(index);
-        li.innerHTML = `
-          <span class="search-suggest__label">${highlightMatch(item.name, query)}</span>
-          <span class="search-suggest__category">${escapeHtml(item.category || "General")}</span>
-        `;
-        fragment.appendChild(li);
+      const rendered = [];
+      results.forEach((item) => {
+        const option = cloneTemplate(optionTemplate);
+        if (!option) return;
+        const label = option.querySelector(".search-suggest__label");
+        const category = option.querySelector(".search-suggest__category");
+        if (label) fillHighlighted(label, item.name, query);
+        if (category) category.textContent = item.category || "General";
+        rendered.push(option);
       });
-      list.appendChild(fragment);
+      // The option shell stays first, so the next render can clone it again.
+      list.replaceChildren(optionTemplate, ...rendered);
       dropdown.hidden = false;
       input.setAttribute("aria-expanded", "true");
       setActive(0);
@@ -1203,11 +1306,12 @@
     });
 
     list.addEventListener("mousedown", (event) => {
-      const target = event.target.closest(".search-suggest__item");
+      const target = event.target.closest(OPTION_SELECTOR);
       if (!target) return;
       event.preventDefault();
-      const index = Number(target.dataset.index);
-      if (Number.isFinite(index)) {
+      // An option's index is its position among the listbox's options.
+      const index = Array.prototype.indexOf.call(options(), target);
+      if (index >= 0) {
         selectSuggestion(index);
         hide();
       }
@@ -1222,11 +1326,45 @@
     form.addEventListener("submit", hide);
   }
 
+  function fillHighlighted(element, text, query) {
+    const value = String(text ?? "");
+    const pattern = String(query ?? "").trim();
+    if (!pattern) {
+      element.textContent = value;
+      return;
+    }
+    const regex = new RegExp(escapeRegExp(pattern), "ig");
+    const parts = [];
+    let lastIndex = 0;
+    let match = regex.exec(value);
+    while (match) {
+      if (match.index > lastIndex) {
+        parts.push(document.createTextNode(value.slice(lastIndex, match.index)));
+      }
+      const mark = document.createElement("mark");
+      mark.textContent = match[0];
+      parts.push(mark);
+      lastIndex = match.index + match[0].length;
+      if (match[0].length === 0) {
+        regex.lastIndex += 1;
+      }
+      match = regex.exec(value);
+    }
+    if (lastIndex < value.length) {
+      parts.push(document.createTextNode(value.slice(lastIndex)));
+    }
+    element.replaceChildren(...parts);
+  }
+
+  // ---------------------------------------------------------------------
+  // Inspiration prompts
+  // ---------------------------------------------------------------------
+
   function attachInspirationPrompts() {
     const buttons = document.querySelectorAll("[data-chat-prompt]");
     if (!buttons.length) return;
     buttons.forEach((button) => {
-      if (button.dataset.chatPromptBound) return;
+      if (chatPromptBound.has(button)) return;
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1234,53 +1372,58 @@
         if (!prompt) return;
         ensureChatOpenWithPrompt(prompt);
       });
-      button.dataset.chatPromptBound = "true";
+      chatPromptBound.add(button);
     });
   }
 
   function ensureChatOpenWithPrompt(prompt) {
     toggleChat(true);
-    const widget = document.querySelector(CHAT_WIDGET_SELECTOR);
-    if (!widget) return;
-    const textarea = widget.querySelector("textarea[name='question']");
+    const textarea = getChatTextarea();
     if (!textarea) return;
     textarea.value = prompt;
     textarea.focus({ preventScroll: false });
   }
+
+  // ---------------------------------------------------------------------
+  // Start-up
+  // ---------------------------------------------------------------------
+
+  async function init() {
+    authState = loadAuth();
+    updateAuthUI();
+    applyAuthToCheckout();
+    initializeTheme();
+    initializeFilters();
+    setupMobileNav();
+
+    document.addEventListener("click", handleDocumentClick);
+    document.addEventListener("keydown", handleDocumentKeydown);
+    const authElements = getAuthElements();
+    if (authElements && authElements.form) {
+      authElements.form.addEventListener("submit", handleLoginSubmit);
+    }
+
+    attachSearch();
+    await fetchCartState();
+
+    ensureChatWidgetSetup();
+
+    const chatForm = getChatForm();
+    if (chatForm) {
+      chatForm.addEventListener("submit", handleChatSubmit);
+      const chatTextarea = getChatTextarea();
+      if (chatTextarea && !chatBound.has(chatTextarea)) {
+        chatTextarea.addEventListener("keydown", handleChatTextareaKeydown);
+        chatBound.add(chatTextarea);
+      }
+    }
+
+    attachInspirationPrompts();
+  }
+
+  init();
 })();
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function escapeHtml(value) {
-  const stringValue = String(value);
-  return stringValue.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      case "'":
-        return "&#39;";
-      default:
-        return char;
-    }
-  });
-}
-
-function highlightMatch(text, query) {
-  const safeText = escapeHtml(text);
-  if (!query) return safeText;
-  const pattern = escapeRegExp(query.trim());
-  if (!pattern) return safeText;
-  const regex = new RegExp(`(${pattern})`, "ig");
-  return safeText.replace(regex, "<mark>$1</mark>");
-}
-
-function uniqueId(prefix = "id") {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }

@@ -4,34 +4,39 @@
 {% block title %}{{ product.name }} | Flowline Supply{% endblock %}
 
 {% block content %}
-<section class="product-hero">
-  <div class="product-hero__media">
+<section class="{{ drift.cls('product-hero') }}">
+  <div class="{{ drift.cls('product-hero__media') }}">
     <picture>
       <source srcset="{{ product.image_url }}" type="image/jpeg" />
       <img src="{{ product.image_url }}" alt="{{ product.name }} product photo" />
     </picture>
   </div>
-  <div class="product-hero__details">
+  <div class="{{ drift.cls('product-hero__details') }}">
     {% if product.category %}
     <span class="category-badge" data-category="{{ product.category|lower }}">{{ product.category }}</span>
     {% endif %}
     <h1>{{ product.name }}</h1>
     {% if product.rating %}
-    <div class="product-hero__rating">
+    <div class="{{ drift.cls('product-hero__rating') }}">
       {{ cards.rating_stars(product.rating, product.review_count or 0) }}
       {% if product.review_count %}
-      <span class="product-hero__reviews">{{ product.review_count }} reviews</span>
+      <span class="{{ drift.cls('product-hero__reviews') }}">{{ product.review_count }} reviews</span>
       {% endif %}
     </div>
     {% endif %}
-    <p class="product-hero__description">{{ product.description }}</p>
-    <div class="product-hero__price">
+    <p class="{{ drift.cls('product-hero__description') }}">{{ product.description }}</p>
+    <div class="{{ drift.cls('product-hero__price') }}">
       <span class="price">{{ product.price|currency }}</span>
-      <p class="product-hero__meta">Free 48h shipping • 45 day returns • Live onboarding webinar</p>
+      <p class="{{ drift.cls('product-hero__meta') }}">Free 48h shipping • 45 day returns • Live onboarding webinar</p>
     </div>
-    <div class="product-hero__actions">
-      <button class="button button--primary button--lg" data-event="add_to_cart" data-product="{{ product.id }}"
-        data-product-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart">
+    {% set grouped_actions = drift.layout("product-hero-actions") == "wrapped" %}
+    <div class="{{ drift.cls('product-hero__actions') }}">
+      {# Stage 4 wraps each action in a role-less span, so the buttons keep
+         their place in the flex row while their nesting changes. #}
+      {% if grouped_actions %}<span class="{{ drift.cls('product-hero__action') }}">{% endif %}
+      <button class="button button--primary button--lg" data-product="{{ product.id }}"
+        data-product-name="{{ product.name }}" {{ drift.test('detail-add-to-cart') }}
+        aria-label="Add {{ product.name }} to cart">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
           stroke-linecap="round" stroke-linejoin="round">
           <circle cx="9" cy="21" r="1"></circle>
@@ -40,9 +45,11 @@
         </svg>
         Add to cart
       </button>
+      {% if grouped_actions %}</span><span class="{{ drift.cls('product-hero__action') }}">{% endif %}
       <a class="button button--ghost button--lg" href="/checkout">Buy now</a>
+      {% if grouped_actions %}</span>{% endif %}
     </div>
-    <ul class="product-hero__highlights">
+    <ul class="{{ drift.cls('product-hero__highlights') }}">
       <li>
         <strong>Warranty</strong>
         <span>2 years of proactive support with express replacement.</span>
@@ -87,7 +94,7 @@
     <h2 class="section-title">You might also like</h2>
   </div>
   {% if related_products %}
-  <div class="product-grid">
+  <div class="{{ drift.cls('product-grid') }}">
     {% for related in related_products %}
     {{ cards.product_card(related, variant="compact", show_actions=True) }}
     {% endfor %}
@@ -101,7 +108,7 @@
   <div class="section-heading">
     <h2 class="section-title">Trending in the studio</h2>
   </div>
-  <div class="product-grid">
+  <div class="{{ drift.cls('product-grid') }}">
     {% for item in trending_products %}
     {{ cards.product_card(item, variant="mini", show_actions=False) }}
     {% endfor %}

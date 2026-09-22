@@ -2,7 +2,7 @@
 name = "demo-webshop"
 version = "0.1.0"
 description = "AI-enhanced Robot Framework demo application for testing workshops"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
   { name = "Many Kasiriha" }
 ]
@@ -21,20 +21,44 @@ dependencies = [
   "pydantic-ai-slim",
   "httpx",
   "requests",
-  "python-dotenv",
-  "cachetools"
+  "python-dotenv"
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "pytest",
   "pytest-asyncio",
   "mypy",
   "ruff",
   "types-requests",
-  "types-cachetools"
+  "pytest-playwright>=0.9.0",
+  "beautifulsoup4>=4.15.0",
 ]
 
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+# Load-test tooling (design D10). Kept out of `dev` and out of the runtime
+# dependencies, so neither the image nor `uv export --no-dev` pulls locust in.
+loadtest = [
+  "locust"
+]
+
+[tool.uv]
+package = false
+required-version = ">=0.8.15"
+
+[tool.pytest.ini_options]
+# Two suites need a running shop, so both are deselected by default and
+# `uv run pytest backend/tests` stays a pure unit/contract/guard run:
+# * the browser smoke suite (drift-coverage Decision 8), asked for with
+#   `uv run pytest -m browser`;
+# * the live acceptance-conformance checks (acceptance-conformance D3), asked
+#   for with `uv run pytest backend/tests/conformance -m conformance` plus an
+#   explicit target option. A later `-m` overrides the one below.
+# `ac` and `planted_bug` only label conformance checks; the offline story guard
+# reads them statically from the story modules.
+markers = [
+  "browser: browser smoke test; runs a real browser against a running shop",
+  "ac(id): the one acceptance criterion `<STORY>_<AC>` (e.g. WEB-006_AC-7) a conformance check verifies; exactly one string literal per check",
+  "planted_bug(flag): a registered planted-bug flag that breaks the check's criterion while enabled; zero or more per check",
+  "conformance: live acceptance-conformance check against a running shop image; deselected by default",
+]
+addopts = "-m 'not browser and not conformance'"

@@ -22,6 +22,10 @@ class Order(Base):
     total: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="processing")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # The workshop space that placed the order (design D3). NULL marks seeded
+    # demo history, which stays visible in every space; a runtime checkout
+    # always stores its space, including "default".
+    space: Mapped[str | None] = mapped_column(String(39), nullable=True, index=True)
 
     shipping_address_id: Mapped[int | None] = mapped_column(ForeignKey("addresses.id", ondelete="SET NULL"), nullable=True)
     billing_address_id: Mapped[int | None] = mapped_column(ForeignKey("addresses.id", ondelete="SET NULL"), nullable=True)

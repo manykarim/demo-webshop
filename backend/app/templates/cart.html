@@ -18,16 +18,16 @@
   <div class="cart-layout">
     <div class="cart-items">
       {% for item in items %}
-      <article class="cart-item">
+      <article class="{{ drift.cls('cart-item') }}" {{ drift.test('cart-item') }}>
         <div>
           <h3>{{ item.name }}</h3>
           <p>{{ item.quantity }} × {{ item.unit_price|currency }}</p>
         </div>
-        <span class="cart-item__price">{{ item.total_price|currency }}</span>
+        <span class="{{ drift.cls('cart-item__price') }}">{{ item.total_price|currency }}</span>
       </article>
       {% endfor %}
     </div>
-    <aside class="cart-summary">
+    <aside class="{{ drift.cls('cart-summary') }}">
       <h3>Summary</h3>
       <dl>
         <div>
@@ -43,15 +43,15 @@
           <dd>Calculated at checkout</dd>
         </div>
       </dl>
-      <div class="cart-summary__total">
+      <div class="{{ drift.cls('cart-summary__total') }}" {{ drift.test('cart-total') }}>
         <span>Total due</span>
         <strong>{{ total|currency }}</strong>
       </div>
-      <div class="cart-summary__actions">
+      <div class="{{ drift.cls('cart-summary__actions') }}">
         <a class="button button--primary button--lg" href="/checkout">Proceed to checkout</a>
         <a class="button button--ghost" href="/products">Continue shopping</a>
       </div>
-      <ul class="cart-summary__assurances">
+      <ul class="{{ drift.cls('cart-summary__assurances') }}">
         <li>Secure payments powered by Stripe</li>
         <li>Live chat support available 7 days a week</li>
         <li>Enterprise invoicing and purchase orders on request</li>

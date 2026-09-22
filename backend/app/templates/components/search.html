@@ -1,0 +1,41 @@
+{# The search hooks both search pages share (tasks 8.1, 9.1 and 9.3).
+
+   Nothing here is a behaviour marker: the form is found by `role="search"` and
+   its `input[name="query"]`, the results region by its role and accessible
+   name, and the results container by the id the clear button points at with
+   `aria-controls`. The typeahead dropdown and its options are cloned from the
+   `<template>` elements below, so the markup the script builds carries this
+   stage's hooks (design Decision 6). #}
+
+{% macro suggestions_template() %}
+{# The typeahead anchor (the field's <label>) holds exactly one template child:
+   the dropdown. The listbox inside it holds exactly one of its own: the option
+   shell. Neither carries an id or a marker of its own; the listbox id comes
+   from the mapping (task 9.3). #}
+<template>
+  <div class="search-suggest" hidden>
+    <ul class="search-suggest__list" role="listbox" id="{{ drift.id('search-suggestions') }}">
+      <template>
+        <li class="search-suggest__item" role="option">
+          <span class="search-suggest__label"></span>
+          <span class="search-suggest__category"></span>
+        </li>
+      </template>
+    </ul>
+    <div class="search-suggest__empty" hidden>No results</div>
+  </div>
+</template>
+{% endmacro %}
+
+{% macro results_section(clear_text) %}
+{# The empty state is part of the server fragment (task 9.1), so this section
+   holds only the results container. #}
+<section class="{{ drift.cls('search-results') }}" role="region" aria-label="Search results" hidden>
+  <div class="section-heading">
+    <h2>Search results</h2>
+    <button class="button button--text" type="button" aria-controls="{{ drift.id('search-results') }}"
+      {{ drift.test('search-clear') }}>{{ clear_text }}</button>
+  </div>
+  <div class="{{ drift.cls('product-grid') }}" id="{{ drift.id('search-results') }}"></div>
+</section>
+{% endmacro %}

@@ -1,22 +1,48 @@
+"""Insert-if-missing demo data, safe to run on every container start (design D4).
+
+``main()`` is idempotent: it adds what is missing and never updates or deletes an
+existing row, so a restart on a persisted database keeps runtime changes (edited
+prices, toggled feature flags, orders placed by participants), while a newer
+image still gains new fixtures.
+
+Two rules make repeated runs identical:
+
+* The fixture lists below are **read-only**. Indexes such as
+  ``billing_address_index`` are read with ``.get`` and model arguments are built
+  from a filtered copy - never through ``pop``, ``del`` or item assignment. A
+  second in-process run (a test, a harness fixture, a retry after a failed seed)
+  therefore sees exactly the same fixture data as the first.
+* Each new user is written as one unit: the user, the addresses, the payment
+  methods and the seeded order history are committed together, once per user, so
+  a crash can never leave a half-seeded user that a later start would skip.
+
+Seeding renders no PDF and constructs neither an order service - whose
+constructor would require a renderer - nor a renderer. Orders are built with the
+module-level ``build_order`` helper (design D8); their documents are rendered on
+first request by ``api/docs.py``.
+
+Consequence for development: this no longer refreshes an existing database. To
+reset, delete the SQLite file.
+"""
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import logging
-from pathlib import Path
 
-from sqlalchemy import select, text, delete
+from sqlalchemy import select
 
-from ..core.db import get_session_factory, init_db
+from ..core.db import (  # noqa: F401  # re-exported: importable from here as before
+    ensure_order_columns,
+    ensure_product_columns,
+    get_session_factory,
+    init_db,
+)
+from ..core.workshop import PLANTED_BUGS
 from ..models.feature_flag import FeatureFlag
-from ..models.order import Order
 from ..models.product import Product
 from ..models.user import Address, PaymentMethod, User
-from ..services.order_service import CustomerDetails, OrderService
-from ..services.pdf_service import PDFService
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-
-TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
+from ..services.order_service import CustomerDetails, build_order
 
 logger = logging.getLogger(__name__)
 
@@ -163,11 +189,13 @@ FEATURE_FLAGS = [
     {"key": "LOCATOR_V2", "description": "Stage 2: Change element IDs and classes", "enabled": False},
     {"key": "LOCATOR_V3", "description": "Stage 3: Remove data-test attributes", "enabled": False},
     {"key": "LOCATOR_V4", "description": "Stage 4: Restructure DOM hierarchy", "enabled": False},
-    # Workshop: Intentional Bugs
-    {"key": "BUG_MISSING_BUTTON", "description": "Bug: Hide add-to-cart button randomly", "enabled": False},
-    {"key": "BUG_WRONG_PRICE", "description": "Bug: Display incorrect prices", "enabled": False},
-    {"key": "BUG_BROKEN_LINKS", "description": "Bug: Break product detail links", "enabled": False},
-    {"key": "BUG_SLOW_RESPONSE", "description": "Bug: Add artificial delay to responses", "enabled": False},
+    # Workshop: Intentional Bugs. Generated from the registry in
+    # ``core/workshop.py`` (design Decision 9), so a new planted bug gets its
+    # seeded row - disabled, like every other bug - without a second edit here.
+    *(
+        {"key": bug.flag, "description": bug.seed_description, "enabled": False}
+        for bug in PLANTED_BUGS
+    ),
     # Workshop: AI Response Variations
     {"key": "AI_DETERMINISTIC", "description": "AI: Force deterministic mock responses", "enabled": True},
     {"key": "AI_RANDOM_DELAYS", "description": "AI: Add random response delays", "enabled": False},
@@ -261,46 +289,25 @@ USERS_FIXTURES = [
 ]
 
 
-async def ensure_product_columns(session) -> None:
-    result = await session.execute(text("PRAGMA table_info(products)"))
-    columns = {row[1] for row in result.fetchall()}
-    if "rating" not in columns:
-        await session.execute(text("ALTER TABLE products ADD COLUMN rating FLOAT"))
-    if "review_count" not in columns:
-        await session.execute(text("ALTER TABLE products ADD COLUMN review_count INTEGER DEFAULT 0"))
-    await session.commit()
-
-
-async def ensure_order_columns(session) -> None:
-    result = await session.execute(text("PRAGMA table_info(orders)"))
-    columns = {row[1] for row in result.fetchall()}
-    alterations = []
-    if "user_id" not in columns:
-        alterations.append("ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL")
-    if "shipping_address_id" not in columns:
-        alterations.append("ADD COLUMN shipping_address_id INTEGER REFERENCES addresses(id) ON DELETE SET NULL")
-    if "billing_address_id" not in columns:
-        alterations.append("ADD COLUMN billing_address_id INTEGER REFERENCES addresses(id) ON DELETE SET NULL")
-    if "payment_method_id" not in columns:
-        alterations.append("ADD COLUMN payment_method_id INTEGER REFERENCES payment_methods(id) ON DELETE SET NULL")
-    for clause in alterations:
-        await session.execute(text(f"ALTER TABLE orders {clause}"))
-    if alterations:
-        await session.commit()
-
-
 async def seed_products(session) -> None:
-    await ensure_product_columns(session)
+    """Insert missing SKUs; never update an existing product row (design D4).
+
+    A price, an inventory level or a description edited at runtime survives every
+    later start, and a newer image still adds SKUs the database does not know.
+    The schema helpers run in ``init_db()`` (design D3), which every caller of
+    this function has already awaited.
+    """
+    existing_skus = set((await session.scalars(select(Product.sku))).all())
+
+    inserted = 0
     for product in PRODUCT_FIXTURES:
-        existing = await session.scalar(select(Product).where(Product.sku == product["sku"]))
-        if existing:
-            for field, value in product.items():
-                setattr(existing, field, value)
-        else:
-            session.add(Product(**product))
+        if product["sku"] in existing_skus:
+            continue
+        session.add(Product(**product))
+        inserted += 1
 
     await session.commit()
-    logger.info("Seeded %d products", len(PRODUCT_FIXTURES))
+    logger.info("Ensured %d products (%d inserted)", len(PRODUCT_FIXTURES), inserted)
 
 
 async def seed_feature_flags(session) -> None:
@@ -315,109 +322,131 @@ async def seed_feature_flags(session) -> None:
     logger.info("Ensured feature flags: %s", ", ".join(flag["key"] for flag in FEATURE_FLAGS))
 
 
-async def seed_users(session) -> None:
-    await ensure_order_columns(session)
-    env = Environment(
-        loader=FileSystemLoader(str(TEMPLATES_DIR)),
-        autoescape=select_autoescape(["html", "xml"]),
-    )
-    pdf_service = PDFService(env)
-    order_service = OrderService(session, pdf_service)
+def _build_cart_items(order_data: dict, product_by_sku: dict, email: str) -> list[dict]:
+    """The cart state of one fixture order, read-only on ``order_data``."""
+    cart_items: list[dict] = []
+    for item in order_data.get("items", []):
+        product = product_by_sku.get(item["sku"])
+        if not product:
+            logger.warning("Skipping unknown product SKU %s for user %s", item["sku"], email)
+            continue
+        quantity = item.get("quantity", 1)
+        cart_items.append(
+            {
+                "product_id": product.id,
+                "name": product.name,
+                "quantity": quantity,
+                "unit_price": product.price,
+                "total_price": round(product.price * quantity, 2),
+            }
+        )
+    return cart_items
 
+
+def _pick(items: list, index: int | None):
+    """``items[index]`` when the fixture index addresses an existing entry."""
+    if index is None or not 0 <= index < len(items):
+        return None
+    return items[index]
+
+
+async def _seed_user(session, user_data: dict, product_by_sku: dict) -> None:
+    """Create one new user with addresses, payment methods and order history.
+
+    Everything is written with ``session.add`` and committed once, at the end, so
+    an exception anywhere in between leaves no trace of this user: the enclosing
+    session is closed by ``main()`` and the flushed rows are rolled back.
+    """
+    user = User(
+        email=user_data["email"],
+        full_name=user_data["full_name"],
+        password_hash=hashlib.sha256(user_data["password"].encode()).hexdigest(),
+    )
+    session.add(user)
+    await session.flush()
+
+    addresses: list[Address] = []
+    for address_data in user_data.get("addresses", []):
+        address = Address(user_id=user.id, **address_data)
+        session.add(address)
+        addresses.append(address)
+    await session.flush()
+
+    payments: list[PaymentMethod] = []
+    for payment_data in user_data.get("payment_methods", []):
+        # Read-only on the fixture: the index is read with ``.get`` and the model
+        # arguments come from a filtered copy. Combining ``.get`` with
+        # ``**payment_data`` would hand ``billing_address_index`` to
+        # ``PaymentMethod`` and raise ``TypeError``; ``pop`` would destroy the
+        # fixture for every later run in this process.
+        billing_address = _pick(addresses, payment_data.get("billing_address_index"))
+        payment = PaymentMethod(
+            user_id=user.id,
+            billing_address_id=billing_address.id if billing_address else None,
+            **{key: value for key, value in payment_data.items() if key != "billing_address_index"},
+        )
+        session.add(payment)
+        payments.append(payment)
+    await session.flush()
+
+    for order_data in user_data.get("orders", []):
+        cart_items = _build_cart_items(order_data, product_by_sku, user.email)
+        if not cart_items:
+            continue
+
+        shipping_address = _pick(addresses, order_data.get("shipping_address_index"))
+        billing_address = _pick(addresses, order_data.get("billing_address_index"))
+        payment_method = _pick(payments, order_data.get("payment_method_index"))
+
+        address_source = shipping_address or billing_address or (addresses[0] if addresses else None)
+        formatted_address = (
+            f"{address_source.line1}, {address_source.city}, {address_source.state} {address_source.postal_code}"
+            if address_source
+            else "Unknown"
+        )
+
+        # ``build_order`` needs no session and no renderer (design D8), so
+        # seeding neither commits half an order nor writes a PDF.
+        order = build_order(
+            CustomerDetails(name=user.full_name, email=user.email, address=formatted_address),
+            {"items": cart_items},
+            user_id=user.id,
+            shipping_address_id=shipping_address.id if shipping_address else None,
+            billing_address_id=billing_address.id if billing_address else None,
+            payment_method_id=payment_method.id if payment_method else None,
+            status=order_data.get("status", "processing"),
+        )
+        session.add(order)
+
+    await session.commit()
+
+
+async def seed_users(session) -> None:
+    """Insert missing demo users, one commit per user (design D4).
+
+    A user whose email already exists is left completely alone - name, password,
+    addresses, payment methods and orders included - so runtime changes and
+    participant orders survive a restart.
+
+    The schema helpers run in ``init_db()`` (design D3), which every caller of
+    this function has already awaited.
+    """
     products = await session.execute(select(Product))
     product_by_sku = {product.sku: product for product in products.scalars().all()}
 
+    inserted: list[str] = []
     for user_data in USERS_FIXTURES:
-        existing_user = await session.scalar(select(User).where(User.email == user_data["email"]))
-        password_hash = hashlib.sha256(user_data["password"].encode()).hexdigest()
-        if existing_user:
-            existing_user.full_name = user_data["full_name"]
-            existing_user.password_hash = password_hash
-            user = existing_user
-            await session.execute(delete(Address).where(Address.user_id == user.id))
-            await session.execute(delete(PaymentMethod).where(PaymentMethod.user_id == user.id))
-            await session.execute(delete(Order).where(Order.user_id == user.id))
-            await session.flush()
-        else:
-            user = User(email=user_data["email"], full_name=user_data["full_name"], password_hash=password_hash)
-            session.add(user)
-            await session.flush()
+        existing_user = await session.scalar(select(User.id).where(User.email == user_data["email"]))
+        if existing_user is not None:
+            continue
+        await _seed_user(session, user_data, product_by_sku)
+        inserted.append(user_data["email"])
 
-        addresses: list[Address] = []
-        for address_data in user_data.get("addresses", []):
-            address = Address(user_id=user.id, **address_data)
-            session.add(address)
-            addresses.append(address)
-        await session.flush()
-
-        payments: list[PaymentMethod] = []
-        for payment_data in user_data.get("payment_methods", []):
-            billing_idx = payment_data.pop("billing_address_index", None)
-            billing_address_id = addresses[billing_idx].id if billing_idx is not None and addresses else None
-            payment = PaymentMethod(
-                user_id=user.id,
-                billing_address_id=billing_address_id,
-                **payment_data,
-            )
-            session.add(payment)
-            payments.append(payment)
-        await session.flush()
-
-        for order_data in user_data.get("orders", []):
-            shipping_idx = order_data.get("shipping_address_index")
-            billing_idx = order_data.get("billing_address_index")
-            payment_idx = order_data.get("payment_method_index")
-
-            shipping_address = addresses[shipping_idx] if shipping_idx is not None and len(addresses) > shipping_idx else None
-            billing_address = addresses[billing_idx] if billing_idx is not None and len(addresses) > billing_idx else None
-            payment_method = payments[payment_idx] if payment_idx is not None and len(payments) > payment_idx else None
-
-            cart_items = []
-            for item in order_data.get("items", []):
-                product = product_by_sku.get(item["sku"])
-                if not product:
-                    logger.warning("Skipping unknown product SKU %s for user %s", item["sku"], user.email)
-                    continue
-                quantity = item.get("quantity", 1)
-                cart_items.append(
-                    {
-                        "product_id": product.id,
-                        "name": product.name,
-                        "quantity": quantity,
-                        "unit_price": product.price,
-                        "total_price": round(product.price * quantity, 2),
-                    }
-                )
-
-            if not cart_items:
-                continue
-
-            cart_state = {"items": cart_items}
-            address_source = shipping_address or billing_address or (addresses[0] if addresses else None)
-            formatted_address = (
-                f"{address_source.line1}, {address_source.city}, {address_source.state} {address_source.postal_code}"
-                if address_source
-                else "Unknown"
-            )
-
-            customer = CustomerDetails(
-                name=user.full_name,
-                email=user.email,
-                address=formatted_address,
-            )
-            order, _ = await order_service.create_order(
-                customer,
-                cart_state,
-                user_id=user.id,
-                shipping_address_id=shipping_address.id if shipping_address else None,
-                billing_address_id=billing_address.id if billing_address else None,
-                payment_method_id=payment_method.id if payment_method else None,
-            )
-            order.status = order_data.get("status", "processing")
-            session.add(order)
-
-    await session.commit()
-    logger.info("Seeded demo users with history: %s", ", ".join(user["email"] for user in USERS_FIXTURES))
+    logger.info(
+        "Ensured %d demo users with history (%s)",
+        len(USERS_FIXTURES),
+        ", ".join(inserted) if inserted else "none inserted",
+    )
 
 
 async def main() -> None:

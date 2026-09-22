@@ -10,7 +10,11 @@ from .product import Product
 class CartItem(Base):
     __tablename__ = "cart_items"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    session_key: Mapped[str] = mapped_column(String(64), index=True)
+    # Space-prefixed outside the ``default`` space (design D3): a 39-character
+    # space, ``:`` and a UUID browser session need more than 64 characters. The
+    # width is documentation - SQLite gives VARCHAR text affinity and enforces
+    # no length - so widening it needs no migration.
+    session_key: Mapped[str] = mapped_column(String(128), index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
 

@@ -1,21 +1,10 @@
 {% extends "base.html" %}
 {% import "components/product_card.html" as cards %}
+{% import "components/search.html" as search %}
 
 {% block title %}Catalogue | Flowline Supply{% endblock %}
 
 {% block content %}
-{# Workshop: Display active locator/bug flags for debugging #}
-{% if feature_flags.get("LOCATOR_V2") or feature_flags.get("LOCATOR_V3") or feature_flags.get("LOCATOR_V4") or feature_flags.get("BUG_MISSING_BUTTON") or feature_flags.get("BUG_WRONG_PRICE") or feature_flags.get("BUG_BROKEN_LINKS") %}
-<div class="workshop-banner" style="background: #fef3c7; border: 1px solid #f59e0b; padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 8px; font-size: 0.875rem;">
-  <strong>Workshop Mode Active:</strong>
-  {% if feature_flags.get("LOCATOR_V2") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #dbeafe; border-radius: 4px;">Locator V2</span>{% endif %}
-  {% if feature_flags.get("LOCATOR_V3") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #fce7f3; border-radius: 4px;">Locator V3</span>{% endif %}
-  {% if feature_flags.get("LOCATOR_V4") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #f3e8ff; border-radius: 4px;">Locator V4</span>{% endif %}
-  {% if feature_flags.get("BUG_MISSING_BUTTON") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #fee2e2; border-radius: 4px;">Bug: Missing Buttons</span>{% endif %}
-  {% if feature_flags.get("BUG_WRONG_PRICE") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #fee2e2; border-radius: 4px;">Bug: Wrong Prices</span>{% endif %}
-  {% if feature_flags.get("BUG_BROKEN_LINKS") %}<span style="margin-left: 0.5rem; padding: 2px 8px; background: #fee2e2; border-radius: 4px;">Bug: Broken Links</span>{% endif %}
-</div>
-{% endif %}
 <section class="catalog-hero">
   <div>
     <h1>Discover your next workflow upgrade</h1>
@@ -23,7 +12,7 @@
       Browse thoughtfully crafted devices, accessories, and wellness tools. Everything in this catalogue is vetted by
       design leaders and product engineers in our community.
     </p>
-    <form class="hero__search" data-search-form>
+    <form class="{{ drift.cls('hero__search') }}" role="search">
       <label class="form-field" aria-label="Search the catalogue">
         <span class="form-field__icon" aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
@@ -33,9 +22,10 @@
           </svg>
         </span>
         <input type="search" name="query" placeholder="Search the full collection..." autocomplete="off"
-          data-search-input />
+          {{ drift.test('search-input') }} />
+        {{ search.suggestions_template() }}
       </label>
-      <button class="button button--primary" type="submit">Search</button>
+      <button class="button button--primary" type="submit" {{ drift.test('search-submit') }}>Search</button>
     </form>
     <div class="inspiration-panel" aria-label="Need inspiration">
       <h2>Need inspiration?</h2>
@@ -72,18 +62,11 @@
   </div>
 </section>
 
-<section class="search-results" data-search-results-wrapper hidden>
-  <div class="section-heading">
-    <h2>Search results</h2>
-    <button class="button button--text" type="button" data-search-clear>Clear search</button>
-  </div>
-  <div class="product-grid" data-search-results></div>
-  <p class="empty-state" data-search-empty hidden>No products matched your filters.</p>
-</section>
+{{ search.results_section("Clear search") }}
 
 <section class="catalog-layout">
   <aside class="filters-panel">
-    <form class="filters-form" method="get" data-filter-form>
+    <form class="filters-form" method="get">
       <fieldset class="filter-group">
         <legend>Categories</legend>
         <div class="chip-group chip-group--scroll" role="group" aria-label="Filter by category">
@@ -99,18 +82,24 @@
 
       <fieldset class="filter-group">
         <legend>Price range</legend>
-        <div class="price-filter" data-price-slider
-          data-price-min-default="{{ price_bounds[0] }}"
-          data-price-max-default="{{ price_bounds[1] }}">
+        {# The sliders carry the stable ids of the mapping's allowlist and their
+           own accessible names, and each output points at its slider with
+           `for`; the reset defaults come from the sliders' own min and max
+           attributes, so the filter needs no marker of its own (task 8.1). The sliders have no `name`,
+           so the filter submits no extra parameters. Their bounds are the exact lowest and highest
+           catalogue prices (`step="any"`), so the default range excludes no product. #}
+        <div class="price-filter">
           <div class="price-filter__values">
-            <span>$<output data-price-output="min">{{ price_filter.min|round(0)|int }}</output></span>
-            <span>$<output data-price-output="max">{{ price_filter.max|round(0)|int }}</output></span>
+            <span>$<output for="price-min-range">{{ '%.2f'|format(price_filter.min) }}</output></span>
+            <span>$<output for="price-max-range">{{ '%.2f'|format(price_filter.max) }}</output></span>
           </div>
           <div class="price-filter__sliders">
-            <input type="range" min="{{ price_bounds[0]|round(0)|int }}" max="{{ price_bounds[1]|round(0)|int }}"
-              value="{{ price_filter.min|round(0)|int }}" step="1" data-price-slider="min">
-            <input type="range" min="{{ price_bounds[0]|round(0)|int }}" max="{{ price_bounds[1]|round(0)|int }}"
-              value="{{ price_filter.max|round(0)|int }}" step="1" data-price-slider="max">
+            <input type="range" id="price-min-range" aria-label="Minimum price"
+              min="{{ '%.2f'|format(price_bounds[0]) }}" max="{{ '%.2f'|format(price_bounds[1]) }}"
+              value="{{ '%.2f'|format(price_filter.min) }}" step="any">
+            <input type="range" id="price-max-range" aria-label="Maximum price"
+              min="{{ '%.2f'|format(price_bounds[0]) }}" max="{{ '%.2f'|format(price_bounds[1]) }}"
+              value="{{ '%.2f'|format(price_filter.max) }}" step="any">
           </div>
           <input type="hidden" name="price_min" value="{{ '%.2f'|format(price_filter.min) }}">
           <input type="hidden" name="price_max" value="{{ '%.2f'|format(price_filter.max) }}">
@@ -156,7 +145,7 @@
           </div>
           <div class="category-preview__products">
             {% for product in preview.products %}
-            {{ cards.product_card(product, variant="mini", show_actions=False, feature_flags=feature_flags) }}
+            {{ cards.product_card(product, variant="mini", show_actions=False) }}
             {% endfor %}
           </div>
         </div>
@@ -169,11 +158,14 @@
       <div class="section-heading">
         <h2 class="section-title">All products</h2>
         <p class="section-subtitle">Every item ships with effortless returns and priority support for teams.</p>
+        {# The number of products the grid shows. It changes only on a full filter
+           submit, so it needs no live region and never the status role. #}
+        <p {{ drift.test('product-count') }}>{{ products|length }} {{ 'product' if products|length == 1 else 'products' }}</p>
       </div>
-      <div class="product-grid">
+      <div class="{{ drift.cls('product-grid') }}">
         {% if products %}
           {% for product in products %}
-          {{ cards.product_card(product, feature_flags=feature_flags) }}
+          {{ cards.product_card(product) }}
           {% endfor %}
         {% else %}
           <p class="empty-state">No products matched your current filters. Try adjusting your filter selections.</p>

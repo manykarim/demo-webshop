@@ -12,10 +12,11 @@
   {% set order_complete = checkout_message and checkout_message_variant == 'success' %}
   <div class="checkout-layout">
     {% if checkout_message %}
-    <div class="checkout-alert checkout-alert--{{ checkout_message_variant|default('info') }}" role="alert">
+    <div class="{{ drift.cls('checkout-alert checkout-alert--' ~ checkout_message_variant|default('info')) }}"
+      role="alert" {{ drift.test('checkout-result') }}>
       <p>{{ checkout_message }}</p>
       {% if document_links %}
-      <p class="checkout-alert__links">
+      <p class="{{ drift.cls('checkout-alert__links') }}">
         <a href="{{ document_links.invoice }}" target="_blank">Download Invoice PDF</a>
         <a href="{{ document_links.summary }}" target="_blank">Download Order Summary PDF</a>
       </p>
@@ -24,63 +25,109 @@
     {% endif %}
 
     {% if not order_complete %}
-    <form class="checkout-form" method="post" action="/checkout">
-      <p class="checkout-auth-note" data-auth-note hidden>
-        Signed in as <span data-auth-note-name></span>. We prefilled your saved details — adjust anything before placing
+    {# Stage 4 groups each field with its label in a role-less wrapper, so the
+       field's nesting changes while its label and name stay (design D3). #}
+    {% set grouped_field = drift.layout("checkout-field") == "grouped" %}
+    {# A rejected submission comes back with `field_errors` (one message per
+       invalid field, shown inside the field's wrapper and referenced by the
+       field's aria-describedby) and `form_values` (what the shopper typed).
+       The form is `novalidate`, so every rule is checked by the server and
+       reported the same way. #}
+    {% set errors = field_errors or {} %}
+    <form class="{{ drift.cls('checkout-form') }}" method="post" action="/checkout" novalidate>
+      {# The form's only direct-child <p>, and its only <span>: that is what
+         app.js writes the signed-in name into (task 8.3). #}
+      <p class="checkout-auth-note" hidden>
+        Signed in as <span></span>. We prefilled your saved details — adjust anything before placing
         the order.
       </p>
       <fieldset>
         <legend>Contact</legend>
-        <label class="form-field" for="checkout-email">
+        {% if grouped_field %}<div class="{{ drift.cls('checkout-form__field') }}">{% endif %}
+        <label class="form-field" for="{{ drift.id('checkout-email') }}">
           <span>Email</span>
-          <input id="checkout-email" name="email" type="email" placeholder="you@productstudio.com" required
-            aria-describedby="checkout-email-hint" />
+          <input id="{{ drift.id('checkout-email') }}" name="email" type="email"
+            placeholder="you@productstudio.com" required
+            aria-describedby="{{ drift.id('checkout-email-hint') }}{% if errors.email %} {{ drift.id('checkout-email-error') }}{% endif %}"
+            {% if errors.email %}aria-invalid="true" {% endif %}{% if form_values %}value="{{ form_values.email }}" {% endif %}
+            {{ drift.test('checkout-email-input') }} />
         </label>
-        <span id="checkout-email-hint" class="visually-hidden">We'll send confirmation and shipping updates.</span>
-        <label class="form-field" for="checkout-name">
+        {% if errors.email %}
+        <p id="{{ drift.id('checkout-email-error') }}" class="{{ drift.cls('checkout-form__error') }}"
+          {{ drift.test('checkout-email-error') }}>{{ errors.email }}</p>
+        {% endif %}
+        {% if grouped_field %}</div>{% endif %}
+        <span id="{{ drift.id('checkout-email-hint') }}" class="visually-hidden">We'll send confirmation and shipping
+          updates.</span>
+        {% if grouped_field %}<div class="{{ drift.cls('checkout-form__field') }}">{% endif %}
+        <label class="form-field" for="{{ drift.id('checkout-name') }}">
           <span>Full name</span>
-          <input id="checkout-name" name="name" placeholder="Jamie Product" required />
+          <input id="{{ drift.id('checkout-name') }}" name="name" placeholder="Jamie Product"
+            {% if errors.name %}aria-describedby="{{ drift.id('checkout-name-error') }}" aria-invalid="true" {% endif %}
+            {% if form_values %}value="{{ form_values.name }}" {% endif %}
+            {{ drift.test('checkout-name-input') }} required />
         </label>
+        {% if errors.name %}
+        <p id="{{ drift.id('checkout-name-error') }}" class="{{ drift.cls('checkout-form__error') }}"
+          {{ drift.test('checkout-name-error') }}>{{ errors.name }}</p>
+        {% endif %}
+        {% if grouped_field %}</div>{% endif %}
       </fieldset>
 
       <fieldset>
         <legend>Shipping</legend>
-        <label class="form-field" for="checkout-address">
+        {% if grouped_field %}<div class="{{ drift.cls('checkout-form__field') }}">{% endif %}
+        <label class="form-field" for="{{ drift.id('checkout-address') }}">
           <span>Address</span>
-          <textarea id="checkout-address" name="address" rows="3" placeholder="123 Flow Street&#10;San Francisco, CA"
-            required></textarea>
+          <textarea id="{{ drift.id('checkout-address') }}" name="address" rows="3"
+            placeholder="123 Flow Street&#10;San Francisco, CA" {{ drift.test('checkout-address-input') }}
+            {% if errors.address %}aria-describedby="{{ drift.id('checkout-address-error') }}" aria-invalid="true" {% endif %}
+            required>{% if form_values %}{{ form_values.address }}{% endif %}</textarea>
         </label>
+        {% if errors.address %}
+        <p id="{{ drift.id('checkout-address-error') }}" class="{{ drift.cls('checkout-form__error') }}"
+          {{ drift.test('checkout-address-error') }}>{{ errors.address }}</p>
+        {% endif %}
+        {% if grouped_field %}</div>{% endif %}
       </fieldset>
 
       <fieldset>
         <legend>Delivery notes</legend>
-        <label class="form-field" for="checkout-team-size">
+        {% if grouped_field %}<div class="{{ drift.cls('checkout-form__field') }}">{% endif %}
+        <label class="form-field" for="{{ drift.id('checkout-team-size') }}">
           <span>Team size (optional)</span>
-          <input id="checkout-team-size" name="team_size" type="number" min="1" placeholder="e.g. 12" />
+          <input id="{{ drift.id('checkout-team-size') }}" name="team_size" type="number" min="1"
+            placeholder="e.g. 12" {% if form_values %}value="{{ form_values.team_size }}" {% endif %}
+            {{ drift.test('checkout-team-size-input') }} />
         </label>
-        <label class="form-field" for="checkout-notes">
+        {% if grouped_field %}</div>{% endif %}
+        {% if grouped_field %}<div class="{{ drift.cls('checkout-form__field') }}">{% endif %}
+        <label class="form-field" for="{{ drift.id('checkout-notes') }}">
           <span>Special instructions</span>
-          <textarea id="checkout-notes" name="notes" rows="2"
-            placeholder="Let us know about preferred delivery windows or packaging."></textarea>
+          <textarea id="{{ drift.id('checkout-notes') }}" name="notes" rows="2"
+            placeholder="Let us know about preferred delivery windows or packaging."
+            {{ drift.test('checkout-notes-input') }}>{% if form_values %}{{ form_values.notes }}{% endif %}</textarea>
         </label>
+        {% if grouped_field %}</div>{% endif %}
       </fieldset>
 
-      <div id="checkout-alert" class="newsletter-alert" role="alert" hidden></div>
-      <button class="button button--primary button--lg" type="submit">Place order</button>
+      <div id="{{ drift.id('checkout-alert') }}" class="newsletter-alert" role="alert" hidden></div>
+      <button class="button button--primary button--lg" type="submit" {{ drift.test('checkout-submit') }}>Place
+        order</button>
     </form>
     {% endif %}
 
-    <aside class="checkout-summary">
+    <aside class="{{ drift.cls('checkout-summary') }}">
       <h3>Order summary</h3>
       {% if order_complete %}
-      <div class="checkout-summary__confirmation">
+      <div class="{{ drift.cls('checkout-summary__confirmation') }}">
         <p class="confirmation-copy">Your cart has been cleared. Download the receipt documents above or continue
           shopping for more products.</p>
         <a class="button button--secondary" href="/products">Browse products</a>
       </div>
       {% else %}
       {% if items %}
-      <ul class="checkout-summary__items">
+      <ul class="{{ drift.cls('checkout-summary__items') }}">
         {% for item in items %}
         <li>
           <div>
@@ -94,26 +141,30 @@
       {% else %}
       <p class="empty-state">Your cart is empty. Add items before completing checkout.</p>
       {% endif %}
-      <dl>
+      {# The amounts come from the route as `summary` (design Decision 10):
+         `checkout_summary()` computes them exactly as the order does, and the
+         registry's bug view replaces the displayed total only. The template
+         never adds up anything itself. #}
+      <dl class="{{ drift.cls('checkout-summary__lines') }}">
         <div>
           <dt>Subtotal</dt>
-          <dd>{{ total|currency }}</dd>
+          <dd {{ drift.test('checkout-subtotal') }}>{{ summary.subtotal|currency }}</dd>
         </div>
         <div>
           <dt>Shipping</dt>
           <dd>Complimentary</dd>
         </div>
         <div>
-          <dt>Estimated tax</dt>
-          <dd>Calculated after address</dd>
+          <dt>Tax</dt>
+          <dd {{ drift.test('checkout-tax') }}>{{ summary.tax|currency }}</dd>
         </div>
       </dl>
-      <div class="checkout-summary__total">
+      <div class="{{ drift.cls('checkout-summary__total') }}">
         <span>Total due at payment</span>
-        <strong>{{ total|currency }}</strong>
+        <strong {{ drift.test('checkout-total') }}>{{ summary.total|currency }}</strong>
       </div>
       {% endif %}
-      <ul class="checkout-summary__assurances">
+      <ul class="{{ drift.cls('checkout-summary__assurances') }}">
         <li>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
             stroke-linecap="round" stroke-linejoin="round">

@@ -29,6 +29,6 @@ It shall
 
 - Reuse the previous checkout run or seed a fresh order programmatically via POST http://localhost:9090/api/checkout
 - From the confirmation view, follow the Invoice and Order Summary links and download both PDFs
-- Validate each file exists under `backend/app/static/pdfs/` with non-zero size and expected naming convention `<order_id>-invoice.pdf`
+- Validate each document downloads from its endpoint - `GET /api/docs/orders/{order_id}/invoice.pdf` and `GET /api/docs/orders/{order_id}/summary.pdf` - answering HTTP 200 with content type `application/pdf` and a non-empty body
 - Use Robot Framework's PDFLibrary (or equivalent) to assert the invoice contains the purchaser's name and total amount
 - Close Browser
