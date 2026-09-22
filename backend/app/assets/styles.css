@@ -218,6 +218,20 @@ body.theme-dark .site-nav__toggle:focus-visible {
   height: 18px;
 }
 
+/* The theme icons swap with the theme, keyed on the uncovered `theme-toggle`
+   block, so no script write and no covered class is involved (task 8.2). */
+.theme-toggle__icon--moon {
+  display: none;
+}
+
+body.theme-dark .theme-toggle__icon--sun {
+  display: none;
+}
+
+body.theme-dark .theme-toggle__icon--moon {
+  display: inline;
+}
+
 .theme-toggle:hover,
 .theme-toggle:focus-visible {
   background: rgba(48, 86, 255, 0.18);
@@ -389,7 +403,7 @@ body.theme-dark .hero__badge {
   margin-bottom: 1rem;
 }
 
-[data-search-form].is-loading {
+form[role="search"].is-loading {
   opacity: 0.6;
   pointer-events: none;
 }
@@ -1394,6 +1408,16 @@ body.theme-dark .category-badge {
   margin-bottom: 0.75rem;
 }
 
+.checkout-form__error {
+  margin: -0.35rem 0 0 1rem;
+  color: #b42318;
+  font-size: 0.9rem;
+}
+
+body.theme-dark .checkout-form__error {
+  color: #fda29b;
+}
+
 .checkout-summary__items {
   list-style: none;
   padding: 0;
@@ -1600,7 +1624,7 @@ body.theme-dark .chat-message--user {
   justify-content: flex-end;
 }
 
-.chat-message--loading::after {
+[role="log"] [aria-busy="true"]::after {
   content: "Thinking...";
   display: block;
   color: var(--color-muted);
@@ -1639,11 +1663,11 @@ body.has-chat-open .chat-launcher {
   pointer-events: auto;
 }
 
-.flash.success {
+.flash.is-success {
   background: #15803d;
 }
 
-.flash.error {
+.flash.is-error {
   background: #b91c1c;
 }
 
@@ -1895,6 +1919,14 @@ body.has-chat-open .chat-launcher {
   position: relative;
 }
 
+.button[hidden] {
+  display: none;
+}
+
+.account-dropdown__trigger[hidden] {
+  display: none;
+}
+
 .account-dropdown__trigger {
   display: inline-flex;
   align-items: center;
@@ -1970,4 +2002,20 @@ body.has-chat-open .chat-launcher {
   overflow: hidden;
   clip: rect(1px, 1px, 1px, 1px);
   white-space: nowrap;
+}
+
+/* Workshop space indicator (design D8). Outside drift: never produced by a
+   locator stage or a bug flag, so both rules move unchanged into every
+   per-stage stylesheet variant. */
+.workshop-space {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.workshop-space-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-muted);
 }

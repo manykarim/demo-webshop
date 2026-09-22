@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Product not found | Flowline Supply{% endblock %}
+
+{% block content %}
+{# The not-found render of `/products/{product_id}`: the id names no product,
+   either unknown or not a number. The route renders it itself while
+   `workshop_view` is active (no global exception handler), with status 404.
+   Only the shared `button` block is written literally; the message is the
+   assertion target and carries its hook through `drift.test`. #}
+<section>
+  <h1>Product not found</h1>
+  <p {{ drift.test('product-not-found') }}>We couldn't find a product at this address. It may have been removed, or the link may be mistyped.</p>
+  <p><a class="button button--primary" href="/products">Browse all products</a></p>
+</section>
+{% endblock %}

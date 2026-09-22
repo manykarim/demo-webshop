@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.db import get_session
-from ..core.feature_flags import is_enabled
+from ..core.feature_flags import get_effective_flags
 from ..services.product_service import ProductService
 from ..services.rag_index import RAGIndex
 
@@ -12,10 +12,14 @@ router = APIRouter()
 
 
 @router.get("/", summary="Search products")
-async def search_products(q: str = Query("", alias="query"), session: AsyncSession = Depends(get_session)):
+async def search_products(
+    q: str = Query("", alias="query"),
+    session: AsyncSession = Depends(get_session),
+    flags: dict[str, bool] = Depends(get_effective_flags),
+):
     service = ProductService(session)
     results = await service.search_products(q)
-    if await is_enabled(session, "SEARCH_V2"):
+    if flags.get("SEARCH_V2"):
         index = RAGIndex()
         all_products = await service.list_products()
         index.build(all_products)

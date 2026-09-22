@@ -1,0 +1,727 @@
+name: image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'workshop-*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.8.15'
+
+      - name: Check that the lockfile is up to date
+        run: uv lock --check
+
+      - name: Install the locked dependencies
+        run: uv sync --locked
+
+      - name: Run the test suite
+        run: uv run pytest backend/tests
+
+  build:
+    name: build
+    needs: check
+    runs-on: ubuntu-24.04
+    # Exactly the three fixed output names of design D7: the digest every job
+    # that needs the image addresses, the resolved APP_VERSION that `smoke`
+    # expects from /health, and the tag list that only `publish` promotes.
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      app_version: ${{ steps.version.outputs.app_version }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve APP_VERSION from the ref
+        id: version
+        run: python3 tools/resolve_image_version.py
+
+      - name: Compute the image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/manykarim/demo-webshop
+          # Without latest=false the action adds `latest` for a version tag.
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+            type=match,pattern=^workshop-.*$,group=0
+            type=edge,branch=main
+          # Overrides the action's own image.version label (the computed tag)
+          # with the version the image reports on /health. Every other label,
+          # including org.opencontainers.image.revision, stays as generated.
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.app_version }}
+
+      - name: Set up QEMU
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Buildx
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # No `tags:` input on purpose (design D7): the candidate is pushed by
+      # digest only, so an image that fails a required verification carries no
+      # tag at all. `publish` adds the computed tags to this digest.
+      - name: Build the candidate and push it by digest
+        id: push
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.app_version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=image,name=ghcr.io/manykarim/demo-webshop,push-by-digest=true,name-canonical=true,push=true
+
+      # The only durable record of what this run built: a finished run's job
+      # outputs cannot be read back, and a blocked candidate never reaches
+      # `publish`.
+      - name: Record the candidate in the job summary
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "### Candidate image"
+            echo
+            echo '```text'
+            echo "digest:      ${DIGEST}"
+            echo "ref:         ${GITHUB_REF}"
+            echo "APP_VERSION: ${APP_VERSION}"
+            echo
+            echo "computed tags (promoted only after every required verification):"
+            echo "${TAGS}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Pull requests build amd64 only, load the image locally and never log in
+      # or push. The smoke phases below run against that one container; later
+      # changes add their pull-request checks after the `recreated` phase.
+      - name: Build the amd64 image for the pull request
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          # A local name for `docker run`; this image never leaves the runner.
+          tags: demo-webshop:pr
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.app_version }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Start the image and wait until it is healthy
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          docker run -d --name demo-webshop -p 9090:9090 demo-webshop:pr
+          for _ in $(seq 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' demo-webshop)"
+            case "$status" in
+              healthy) echo "the container is healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 1
+          done
+          echo "the container did not become healthy within 90 seconds" >&2
+          docker logs demo-webshop
+          exit 1
+
+      - name: Smoke-test the fresh container
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: python3 tools/smoke_image.py --phase fresh --expect-version "${APP_VERSION}"
+
+      - name: Restart the container and wait until it is healthy
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          docker restart demo-webshop
+          for _ in $(seq 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' demo-webshop)"
+            case "$status" in
+              healthy) echo "the container is healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 1
+          done
+          echo "the container did not become healthy within 90 seconds" >&2
+          docker logs demo-webshop
+          exit 1
+
+      - name: Smoke-test the restarted container
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: python3 tools/smoke_image.py --phase restarted --expect-version "${APP_VERSION}"
+
+      - name: Recreate the container and wait until it is healthy
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          docker rm -f demo-webshop
+          docker run -d --name demo-webshop -p 9090:9090 demo-webshop:pr
+          for _ in $(seq 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' demo-webshop)"
+            case "$status" in
+              healthy) echo "the container is healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 1
+          done
+          echo "the container did not become healthy within 90 seconds" >&2
+          docker logs demo-webshop
+          exit 1
+
+      - name: Smoke-test the recreated container
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: python3 tools/smoke_image.py --phase recreated --expect-version "${APP_VERSION}"
+
+      # drift-coverage task 16.2 (a). Nothing is pushed on a pull request, so
+      # the `test` job below has no digest to pull and is skipped; the browser
+      # smoke therefore runs here, against the very container the three smoke
+      # phases above just verified.
+      - name: Set up uv for the browser smoke
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.8.15'
+
+      - name: Install the locked dependencies
+        if: ${{ github.event_name == 'pull_request' }}
+        run: uv sync --locked
+
+      - name: Install Chromium
+        if: ${{ github.event_name == 'pull_request' }}
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run the browser smoke against the candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        run: uv run pytest -m browser backend/tests/browser --base-url http://localhost:9090
+
+      - name: Print the container log after a failed browser smoke
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        run: docker logs demo-webshop
+
+      # Proves the workshop-* mapping before merge without publishing anything:
+      # a local, never-pushed tag on HEAD drives both the version script and the
+      # tag rules.
+      - name: Create a local workshop tag for the dry run
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DRYRUN_TAG: workshop-dryrun-${{ github.run_id }}
+        run: git tag "$DRYRUN_TAG"
+
+      - name: Resolve APP_VERSION for the simulated workshop ref
+        id: dryrun-version
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DRYRUN_TAG: workshop-dryrun-${{ github.run_id }}
+        run: GITHUB_REF="refs/tags/${DRYRUN_TAG}" python3 tools/resolve_image_version.py
+
+      - name: Compute the tags for the simulated workshop ref
+        id: dryrun-meta
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          context: git
+          images: ghcr.io/manykarim/demo-webshop
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+            type=match,pattern=^workshop-.*$,group=0
+            type=edge,branch=main
+
+      - name: Assert the simulated workshop mapping
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DRYRUN_TAG: workshop-dryrun-${{ github.run_id }}
+          APP_VERSION: ${{ steps.dryrun-version.outputs.app_version }}
+          TAGS: ${{ steps.dryrun-meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          echo "computed tags:"
+          echo "${TAGS}"
+          image=ghcr.io/manykarim/demo-webshop
+          expected_workshop="${image}:${DRYRUN_TAG}"
+          expected_sha="${image}:sha-$(git rev-parse HEAD | cut -c 1-7)"
+          failed=0
+          if ! grep -qxF "${expected_workshop}" <<< "${TAGS}"; then
+            echo "FAIL [workshop-tag] ${expected_workshop} is missing" >&2
+            failed=1
+          fi
+          if ! grep -qxF "${expected_sha}" <<< "${TAGS}"; then
+            echo "FAIL [sha-tag] ${expected_sha} is missing" >&2
+            failed=1
+          fi
+          if grep -qxF "${image}:latest" <<< "${TAGS}"; then
+            echo "FAIL [latest] a workshop ref must not compute ${image}:latest" >&2
+            failed=1
+          fi
+          if [ "${APP_VERSION}" != "${DRYRUN_TAG}" ]; then
+            echo "FAIL [app-version] got '${APP_VERSION}', expected '${DRYRUN_TAG}'" >&2
+            failed=1
+          fi
+          exit "${failed}"
+
+  # The candidate is exercised on both published architectures before any tag
+  # names it. Native arm64 runners are available because the repository is
+  # public.
+  smoke:
+    name: smoke (${{ matrix.runner }})
+    needs: build
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ${{ matrix.runner }}
+    # Read-only: the package stays private until the rollout makes it public,
+    # so the untagged candidate can only be pulled by digest, with a login.
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start the candidate image and wait until it is healthy
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          docker run -d --name demo-webshop -p 9090:9090 \
+            "ghcr.io/manykarim/demo-webshop@${DIGEST}"
+          for _ in $(seq 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' demo-webshop)"
+            case "$status" in
+              healthy) echo "the container is healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 1
+          done
+          echo "the container did not become healthy within 90 seconds" >&2
+          docker logs demo-webshop
+          exit 1
+
+      - name: Print the architecture inside the container
+        run: docker exec demo-webshop uname -m
+
+      - name: Smoke-test the fresh container
+        env:
+          APP_VERSION: ${{ needs.build.outputs.app_version }}
+        run: python3 tools/smoke_image.py --phase fresh --expect-version "${APP_VERSION}"
+
+      - name: Restart the container and wait until it is healthy
+        run: |
+          docker restart demo-webshop
+          for _ in $(seq 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' demo-webshop)"
+            case "$status" in
+              healthy) echo "the container is healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 1
+          done
+          echo "the container did not become healthy within 90 seconds" >&2
+          docker logs demo-webshop
+          exit 1
+
+      - name: Smoke-test the restarted container
+        env:
+          APP_VERSION: ${{ needs.build.outputs.app_version }}
+        run: python3 tools/smoke_image.py --phase restarted --expect-version "${APP_VERSION}"
+
+      - name: Recreate the container and wait until it is healthy
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          docker rm -f demo-webshop
+          docker run -d --name demo-webshop -p 9090:9090 \
+            "ghcr.io/manykarim/demo-webshop@${DIGEST}"
+          for _ in $(seq 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' demo-webshop)"
+            case "$status" in
+              healthy) echo "the container is healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 1
+          done
+          echo "the container did not become healthy within 90 seconds" >&2
+          docker logs demo-webshop
+          exit 1
+
+      - name: Smoke-test the recreated container
+        env:
+          APP_VERSION: ${{ needs.build.outputs.app_version }}
+        run: python3 tools/smoke_image.py --phase recreated --expect-version "${APP_VERSION}"
+
+  # drift-coverage's verification of the candidate (design Decision 16, A5).
+  # It is the single result that says the drift contract holds for this exact
+  # digest: the unit and contract suites from source, and the browser smoke of
+  # stages 1 to 4 against the image `publish` is about to tag.
+  test:
+    name: test
+    needs: build
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    # Read-only: the candidate is pulled by digest, and this job pushes nothing.
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.8.15'
+
+      - name: Install the locked dependencies
+        run: uv sync --locked
+
+      # Also run in `check`, from the same commit. Re-running this one job
+      # therefore re-verifies the whole drift contract of the candidate.
+      - name: Run the unit and contract suites
+        run: uv run pytest backend/tests/unit backend/tests/contract
+
+      # Required while the package is private (until reproducible-image task
+      # 10.2) and harmless once it is public.
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start the candidate image and wait until it is healthy
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          docker run -d --name demo-webshop -p 9090:9090 \
+            "ghcr.io/manykarim/demo-webshop@${DIGEST}"
+          for _ in $(seq 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' demo-webshop)"
+            case "$status" in
+              healthy) echo "the container is healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 1
+          done
+          echo "the container did not become healthy within 90 seconds" >&2
+          docker logs demo-webshop
+          exit 1
+
+      - name: Install Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run the browser smoke against the candidate
+        run: uv run pytest -m browser backend/tests/browser --base-url http://localhost:9090
+
+      - name: Print the container log after a failed browser smoke
+        if: ${{ failure() }}
+        run: docker logs demo-webshop
+
+  # acceptance-conformance's gate (design D6): the story suite against the very
+  # digest `build` pushed and `smoke` verified, once per space mode, each leg on
+  # a fresh container. It runs for workshop tags, pushes to main and manual
+  # runs; `publish` requires it only on workshop tags, so main stays
+  # non-blocking. Pushed vX.Y.Z tags and pull requests never run it.
+  conformance:
+    name: conformance (${{ matrix.space_mode }})
+    needs: [build, smoke]
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/workshop-'))) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Read-only: the untagged candidate is pulled by digest, nothing is pushed.
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        space_mode:
+          - per-check
+          - default
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Required while the package is private and harmless once it is public.
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start the candidate image and wait until it is healthy
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          docker run -d --name conformance-target -p 9090:9090 \
+            "ghcr.io/manykarim/demo-webshop@${DIGEST}"
+          for _ in $(seq 90); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' conformance-target)"
+            case "$status" in
+              healthy) echo "the container is healthy"; exit 0 ;;
+              unhealthy) break ;;
+            esac
+            sleep 1
+          done
+          echo "the container did not become healthy within 90 seconds" >&2
+          docker logs conformance-target
+          exit 1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.8.15'
+
+      - name: Install the locked dependencies
+        run: uv sync --locked
+
+      - name: Read the locked Playwright version
+        id: playwright
+        run: |
+          set -euo pipefail
+          version="$(awk '/^name = "playwright"$/ { found = 1; next } found && /^version = / { gsub(/"/, "", $3); print $3; exit }' uv.lock)"
+          if [ -z "${version}" ]; then
+            echo "uv.lock locks no playwright package" >&2
+            exit 1
+          fi
+          echo "locked playwright ${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-chromium-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium
+        id: browsers
+        run: uv run playwright install --with-deps chromium
+
+      # Release mode: the top record section must be named after this tag and
+      # hold no pending row, and every active criterion must have a check.
+      - name: Run the story guard in release mode
+        id: guard
+        if: ${{ startsWith(github.ref, 'refs/tags/workshop-') }}
+        env:
+          CONFORMANCE_RELEASE: ${{ github.ref_name }}
+        run: uv run pytest backend/tests/conformance/test_story_coverage.py
+
+      # Also after a failed release guard, so one tag run reports both results.
+      - name: Run the conformance suite against the candidate
+        id: suite
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        env:
+          CONFORMANCE_SPACE_MODE: ${{ matrix.space_mode }}
+        run: >-
+          uv run pytest backend/tests/conformance -m conformance
+          --base-url http://localhost:9090
+          --junitxml="conformance-report/${CONFORMANCE_SPACE_MODE}/junit.xml"
+          --tracing retain-on-failure --screenshot only-on-failure
+
+      - name: Summarize the failing criteria
+        if: ${{ always() }}
+        env:
+          SPACE_MODE: ${{ matrix.space_mode }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          GUARD_OUTCOME: ${{ steps.guard.outcome }}
+          SUITE_OUTCOME: ${{ steps.suite.outcome }}
+        run: |
+          report="conformance-report/${SPACE_MODE}/report.md"
+          # The rows of one `## <title>` table of report.md whose Result column
+          # (the second) is fail or error, as "<first column> (<result>)".
+          failing() {
+            awk -F '|' -v wanted="## $1" '
+              /^## / { inside = ($0 == wanted); next }
+              inside && /^\|/ {
+                name = $2; result = $3
+                gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", result)
+                if (result == "fail" || result == "error") print name " (" result ")"
+              }' "$report"
+          }
+          list() {
+            if [ -z "$1" ]; then echo "None."; return; fi
+            while IFS= read -r line; do echo "- ${line}"; done <<< "$1"
+          }
+          {
+            echo "### Conformance: ${SPACE_MODE} space mode"
+            echo
+            echo "- Space mode: \`${SPACE_MODE}\`"
+            echo "- Tested digest: \`${DIGEST}\`"
+            echo "- Conformance suite: ${SUITE_OUTCOME:-not run}"
+            if [ -n "${GUARD_OUTCOME}" ]; then
+              echo "- Release guard (\`CONFORMANCE_RELEASE=${GITHUB_REF_NAME}\`): ${GUARD_OUTCOME}"
+            fi
+            echo
+            if [ -f "$report" ]; then
+              echo "#### Failing or erroring criteria"
+              echo
+              list "$(failing Criteria)"
+              echo
+              echo "#### Harness"
+              echo
+              list "$(failing Harness)"
+            else
+              echo "No report: \`${report}\` was not written, so the suite did not run or stopped before it finished."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report and traces
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-report-${{ matrix.space_mode }}
+          path: |
+            conformance-report/
+            test-results/
+          if-no-files-found: warn
+
+      - name: Print the container log after a failure
+        if: ${{ failure() }}
+        run: docker logs conformance-target
+
+  # Tags the verified digest, without rebuilding. The condition is explicit
+  # (design D7): `test` is drift-coverage's verification and is required here,
+  # and `conformance` (acceptance-conformance D6) is required on workshop tags
+  # only - a failed or skipped gate there leaves the candidate without any tag,
+  # sha-<short> included, while main and other refs publish regardless. The
+  # implicit success() could not express this once a need may be skipped - on
+  # a pull request every one of them is.
+  publish:
+    name: publish
+    needs: [build, smoke, test, conformance]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.build.result == 'success' && needs.smoke.result == 'success' && needs.test.result == 'success' && (needs.conformance.result == 'success' || !startsWith(github.ref, 'refs/tags/workshop-')) }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The tag list is computed once, in `build`; this job derives no tag name
+      # of its own. It always contains sha-<short>, so an empty human-readable
+      # part (a dispatch on another branch) needs no extra condition.
+      - name: Promote the verified digest
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TAGS: ${{ needs.build.outputs.tags }}
+        run: |
+          set -euo pipefail
+          tag_args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            tag_args+=(-t "$tag")
+          done <<< "${TAGS}"
+          if [ "${#tag_args[@]}" -eq 0 ]; then
+            echo "the build job computed no tag" >&2
+            exit 1
+          fi
+          docker buildx imagetools create "${tag_args[@]}" \
+            "ghcr.io/manykarim/demo-webshop@${DIGEST}"
+
+      - name: Log out of GHCR
+        run: docker logout ghcr.io
+
+      # Anonymous on purpose: a package that is still private fails the run
+      # here instead of failing on workshop day.
+      - name: Verify every promoted tag anonymously
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TAGS: ${{ needs.build.outputs.tags }}
+        run: |
+          set -euo pipefail
+          raw="$(mktemp)"
+          failed=0
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker buildx imagetools inspect --raw "$tag" > "$raw"
+            # --raw prints the index bytes without a trailing newline, so this
+            # is the digest the registry serves the tag as.
+            digest="sha256:$(sha256sum < "$raw" | cut -d ' ' -f 1)"
+            platforms="$(jq -r '[.manifests[]? | select(.platform.os != "unknown" and .platform.architecture != "unknown") | .platform.os + "/" + .platform.architecture] | unique | join(",")' < "$raw")"
+            echo "${tag} -> ${digest} [${platforms}]"
+            for platform in linux/amd64 linux/arm64; do
+              case ",${platforms}," in
+                *",${platform},"*) ;;
+                *) echo "FAIL [platform] ${tag} does not publish ${platform}" >&2; failed=1 ;;
+              esac
+            done
+            if [ "${digest}" != "${DIGEST}" ]; then
+              echo "FAIL [digest] ${tag} points at ${digest}, not at the verified ${DIGEST}" >&2
+              failed=1
+            fi
+          done <<< "${TAGS}"
+          exit "${failed}"
+
+      - name: Record the promotion in the job summary
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TAGS: ${{ needs.build.outputs.tags }}
+        run: |
+          {
+            echo "### Promoted image"
+            echo
+            echo '```text'
+            echo "digest: ${DIGEST}"
+            echo
+            echo "tags:"
+            echo "${TAGS}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,39 @@
+# Build context exclusions (design D9).
+#
+# The image copies only pyproject.toml, uv.lock, backend/ and tools/, so most of
+# what follows never reaches a layer anyway. Excluding it here keeps the context
+# sent to the builder small and free of local secrets and databases, keeps nested
+# copies (backend/.env, backend/workshop.db) out of the copied trees, and guards
+# against a future broad "COPY . .".
+#
+# Rule for later changes: a change that adds a root directory the image does not
+# copy extends this file in the same task that creates the directory.
+
+# Version control and CI definitions - never copied into the image.
+.git
+.github/
+
+# Local development environment and byte-code caches.
+.venv
+**/__pycache__
+.claude/
+
+# Local configuration and state: secrets and SQLite databases, at any depth.
+**/.env
+**/*.db
+
+# Documentation, specifications and tests: not part of the runtime image.
+openspec/
+docs/
+backend/tests/
+
+# Load-test tooling: run against a deployment, never shipped inside the image.
+loadtest/
+
+# Generated order documents. The example_*.pdf files are kept on purpose.
+backend/app/static/pdfs/invoice_ORD-*.pdf
+backend/app/static/pdfs/summary_ORD-*.pdf
+
+# Conformance run output (acceptance-conformance). The image never copies these.
+conformance-report/
+test-results/

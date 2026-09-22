@@ -1,3 +1,5 @@
+> **Legacy document, superseded.** For the flows covered by the stories WEB-002 to WEB-007 and API-005 to API-007 (catalogue, product detail, search, cart, checkout and sign-in), this file is superseded by the story set in [`docs/user-stories/`](../README.md). It is still the only description of the home page, AI helper and operations topics. This file is neither maintained nor gated: nothing verifies that the shop still behaves as described here.
+
 # AI Assistance and Operations User Stories
 
 ## Story 1: Chat with an AI product concierge

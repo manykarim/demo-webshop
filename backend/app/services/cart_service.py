@@ -24,9 +24,21 @@ class CartLine:
 
 
 class CartService:
-    def __init__(self, session: AsyncSession, session_key: str):
+    """Cart operations on one storage key (design D3).
+
+    ``session_key`` is the ``cart_items.session_key`` that rows are stored
+    under; outside the ``default`` space it carries a ``<space>:`` prefix.
+    ``session_label`` is what the API reports back as ``session`` and defaults
+    to the storage key, so page routes and the checkout API - which never expose
+    the field - can keep passing one value. The label is handed in rather than
+    derived by splitting the key, because a hand-crafted session id in the
+    ``default`` space may itself contain a colon.
+    """
+
+    def __init__(self, session: AsyncSession, session_key: str, session_label: str | None = None):
         self.session = session
         self.session_key = session_key
+        self.session_label = session_label or session_key
 
     async def add_to_cart(self, product: Product, quantity: int = 1) -> Dict[str, List[dict]]:
         cart_item = await self.session.scalar(
@@ -67,7 +79,7 @@ class CartService:
 
         total = round(sum(line.total_price for line in lines), 2)
         return {
-            "session": self.session_key,
+            "session": self.session_label,
             "items": [
                 {
                     "product_id": line.product_id,
