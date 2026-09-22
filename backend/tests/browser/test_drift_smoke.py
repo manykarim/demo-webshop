@@ -279,6 +279,25 @@ def test_checkout_is_prefilled_after_sign_in(page: Page, stage: str) -> None:
     check_live_dom(page, stage)
 
 
+def test_enter_searches_after_suggestions_arrive(page: Page, stage: str) -> None:
+    """Enter submits the typed search even when suggestions are already shown.
+
+    Suggestions used to highlight their first option on arrival, so Enter
+    opened a product page instead of searching (WEB-004 AC-3 and AC-8) whenever
+    they arrived before the keystroke. Change fix-search-enter-submits.
+    """
+    page.goto("/")
+    search = page.get_by_role("searchbox", name="Search products")
+    search.fill("headphones")
+    expect(page.get_by_role("option").first).to_be_visible()
+    expect(page.get_by_role("option", selected=True)).to_have_count(0)
+
+    search.press("Enter")
+
+    expect(page.get_by_role("region", name="Search results")).to_be_visible()
+    expect(page).not_to_have_url(PRODUCT_URL)
+
+
 def test_search_suggestions_with_keyboard_selection(page: Page, stage: str) -> None:
     """Typing offers options; the keyboard picks one and opens its product."""
     page.goto("/")
