@@ -1255,7 +1255,11 @@
       list.replaceChildren(optionTemplate, ...rendered);
       dropdown.hidden = false;
       input.setAttribute("aria-expanded", "true");
-      setActive(0);
+      // No option is active until the shopper moves into the list, so Enter
+      // submits the typed search (WEB-004 AC-3) instead of opening whichever
+      // suggestion happened to arrive first.
+      activeIndex = -1;
+      rendered.forEach((option) => option.setAttribute("aria-selected", "false"));
     };
 
     const fetchSuggestions = async (query) => {
