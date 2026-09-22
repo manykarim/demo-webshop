@@ -322,7 +322,27 @@ One row per load-test run.
 
 | Kind | Image reference | Commit (revision label) | Digest | `drift_and_bug` listed | Users | Duration | p95 excl. `[slow-bug]` | 5xx | Leaks |
 |---|---|---|---|---|---|---|---|---|---|
-| | | | | | | | | | |
+| early | `ghcr.io/manykarim/demo-webshop@sha256:5989aa13` | 36e729a (`dev`) | `sha256:5989aa139c8e79d93e14f073ec162dd2c3d28c19071371c2b31516913f4d5896` | yes | 40 | 10 min | 1700 ms — over the 1000 ms bar | 0 | 0 |
+
+The early run answers the two questions that matter for the workshop: 9286
+requests produced **no 5xx and no `leak:` failure**, so space isolation holds
+under 40 concurrent shoppers, including the order documents that Cloudflare
+once served across spaces.
+
+Its p95 is over the bar, and the cause is the client, not the shop. Images are
+5323 of the 9286 requests and **16.8 GB of the run's 17.0 GB**, because every
+product image is a 3.16 MB file; the run therefore pulled 227 Mbit/s for ten
+minutes and the HTML and API requests queued behind that traffic on the same
+link. Measured from the same machine while the shop was idle, a page answers in
+0.11 s and `/api/products/` in 0.09 s, and the image itself is a Cloudflare
+`HIT` that never reaches the origin. The database is not the constraint either:
+`POST /api/cart/items` stayed at a 370 ms p95 across 353 writes, so
+`pool_size=20` and `max_overflow=20` were left unchanged in
+`backend/app/core/db.py`.
+
+Run the gating test from a host with real bandwidth, or fix the image weight
+first. A p95 measured over a saturated client link says nothing about how the
+shop will behave on workshop day.
 
 ### Rehearsal record
 
