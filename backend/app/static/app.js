@@ -41,6 +41,20 @@
   const OWN_TEMPLATES_SELECTOR = ":scope > template";
   const OPTION_SELECTOR = '[role="option"]';
 
+  // Turns an error response's `detail` into readable text. FastAPI sends a
+  // string for HTTPException and an array of `{loc, msg, type}` objects for
+  // validation errors; `new Error(array)` would render as "[object Object]".
+  function errorText(detail, fallback) {
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((entry) => (entry && typeof entry.msg === "string" ? entry.msg : ""))
+        .filter(Boolean);
+      if (messages.length) return messages.join("; ");
+    }
+    return fallback;
+  }
+
   const FLASH_STATE_CLASSES = ["is-success", "is-error", "is-info"];
   const MOBILE_NAV_BREAKPOINT = 600;
   const mobileNavMediaQuery =
@@ -228,7 +242,7 @@
           .json()
           .then((body) => body?.detail)
           .catch(() => null);
-        throw new Error(detail || "Unable to add item to cart.");
+        throw new Error(errorText(detail, "Unable to add item to cart."));
       }
 
       const cartState = await response.json();
@@ -388,7 +402,12 @@
     document.body.style.overflow = "hidden";
     const emailInput = elements.form?.elements?.email;
     if (emailInput) {
-      window.requestAnimationFrame(() => emailInput.focus());
+      // Deferred until the overlay is laid out, and skipped when focus is
+      // already inside the dialog: a shopper (or a test) who has started
+      // typing in another field must not have their keystrokes moved.
+      window.requestAnimationFrame(() => {
+        if (!elements.dialog.contains(document.activeElement)) emailInput.focus();
+      });
     }
   }
 
@@ -426,7 +445,7 @@
       });
       if (!response.ok) {
         const detail = await response.json().then((body) => body?.detail).catch(() => null);
-        throw new Error(detail || "Invalid email or password");
+        throw new Error(errorText(detail, "Invalid email or password"));
       }
       const data = await response.json();
       saveAuth(data);
@@ -955,7 +974,7 @@
       });
       if (!response.ok) {
         const detail = await response.json().then((body) => body?.detail).catch(() => null);
-        throw new Error(detail || "Assistant unavailable");
+        throw new Error(errorText(detail, "Assistant unavailable"));
       }
       const data = await response.json();
       const answer =

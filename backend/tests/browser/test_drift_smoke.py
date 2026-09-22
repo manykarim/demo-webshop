@@ -213,6 +213,55 @@ def test_sign_in_and_account_menu(page: Page, stage: str) -> None:
     check_live_dom(page, stage)
 
 
+# Replaces requestAnimationFrame with a queue that only the test flushes, so the
+# sign-in dialog's deferred focus runs at a moment the test chooses
+# (change fix-login-modal-focus, design D3). Playwright's own actionability
+# checks run in an isolated world and keep the real implementation.
+QUEUE_ANIMATION_FRAMES = """
+window.__queuedFrames = [];
+window.requestAnimationFrame = (callback) => window.__queuedFrames.push(callback);
+"""
+FLUSH_ANIMATION_FRAMES = "window.__queuedFrames.splice(0).forEach((cb) => cb(performance.now()))"
+
+
+def test_login_focus_is_not_stolen(page: Page, stage: str) -> None:
+    """A field focused before the dialog's deferred focus runs keeps focus.
+
+    The first main run of the image workflow typed the password into the email
+    field: the deferred focus landed between Playwright focusing the password
+    field and inserting its text.
+    """
+    page.add_init_script(QUEUE_ANIMATION_FRAMES)
+    page.goto("/")
+    page.get_by_role("button", name="Log in").click()
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible()
+    password = dialog.get_by_label("Password")
+    password.fill(DEMO_PASSWORD)
+
+    page.evaluate(FLUSH_ANIMATION_FRAMES)
+
+    expect(password).to_be_focused()
+    expect(password).to_have_value(DEMO_PASSWORD)
+    expect(dialog.get_by_label("Email")).to_have_value("")
+
+
+def test_rejected_sign_in_shows_readable_error(page: Page, stage: str) -> None:
+    """A validation error from the server reads as text, not "[object Object]"."""
+    page.goto("/")
+    page.get_by_role("button", name="Log in").click()
+    dialog = page.get_by_role("dialog")
+    dialog.get_by_label("Email").fill("jamie@flowlinesupply.comdemo123")
+    dialog.get_by_label("Password").fill(DEMO_PASSWORD)
+    dialog.get_by_role("button", name="Sign in").click()
+
+    alert = dialog.get_by_role("alert")
+    expect(alert).to_be_visible()
+    expect(alert).to_have_text(re.compile(r"\w"))
+    expect(alert).not_to_contain_text("[object Object]")
+    expect(dialog).to_be_visible()
+
+
 def test_checkout_is_prefilled_after_sign_in(page: Page, stage: str) -> None:
     """Email, name and address carry the signed-in shopper's saved details."""
     page.goto("/")
