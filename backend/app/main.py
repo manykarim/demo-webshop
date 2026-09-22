@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .core.caching import DefaultCacheControlMiddleware, app_js_version
 from .core.config import settings, warn_obsolete_settings
 from .core.db import get_session, init_db, shutdown_db
 from .core.feature_flags import get_effective_flags
@@ -65,6 +66,10 @@ app = FastAPI(
 # Appends the workshop_space cookie when the query parameter switched space.
 app.add_middleware(WorkshopSpaceCookieMiddleware)
 
+# No shared cache (the CDN in front of the Coolify instance) may store a
+# response that depends on the space, the session or the user (fix-cdn-caching).
+app.add_middleware(DefaultCacheControlMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,
@@ -104,6 +109,9 @@ def _mount_static_and_templates(application: FastAPI) -> None:
     # a route that declares the `workshop_view` dependency. They are globals
     # rather than context values because macros imported with
     # `{% import ... as cards %}` see globals but not the render context.
+    # Content digest of static/app.js for its URL, so a cached old script is
+    # never paired with a new page (fix-cdn-caching, design D2).
+    templates.env.globals["app_js_version"] = app_js_version()
     templates.env.globals["drift"] = drift_global
     templates.env.globals["bugs"] = bugs_global
     app.state.templates = templates
