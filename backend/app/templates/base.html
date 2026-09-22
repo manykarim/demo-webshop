@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}AI Shop{% endblock %}</title>
   <link rel="stylesheet" href="{{ drift.stylesheet_href }}" />
-  <script src="/static/app.js" defer></script>
+  <script src="/static/app.js?v={{ app_js_version }}" defer></script>
   {% block head_extra %}{% endblock %}
 </head>
 
