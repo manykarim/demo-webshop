@@ -292,6 +292,12 @@ def test_ac_6_apply_filters_updates_the_list(space_page, api) -> None:
     apply_filters(space_page)
 
     assert_grid_shows(space_page, expected)
+    # DELIBERATELY DRIFT-FRAGILE - workshop-rollout task 4.2 gate rehearsal.
+    # `product-card` is the stage-1 class name; stage 2 renames the block to
+    # `item-card` and stage 4 to `product-tile`, while stage 3 keeps it. So
+    # [clean] and [stage3] pass while [stage2], [stage4] and [drift_and_bug]
+    # fail. Never merge this branch.
+    expect(space_page.locator("css=.product-card")).to_have_count(len(expected))
     count = re.compile(rf"(?<![\d.,$]){len(expected)}\s+(products?|items?|results?)\b", re.IGNORECASE)
     expect(space_page.get_by_text(count)).to_be_visible()
 

@@ -59,7 +59,10 @@ MENTIONS = {
 }
 SUBMIT = re.compile(r"place\s+order|submit|complete\s+(order|checkout|purchase)|\bpay\b", re.IGNORECASE)
 ORDER_TOKEN = re.compile(r"\bORD-[A-Za-z0-9]+")
-ORDER_FORMAT = re.compile(r"^ORD-[0-9A-F]{8}$")
+# DELIBERATELY WRONG - workshop-rollout task 4.2 gate rehearsal. The shop
+# numbers orders ORD- plus 8 hex characters; this expects a different shape
+# so WEB-006_AC-7 fails in every variant. Never merge this branch.
+ORDER_FORMAT = re.compile(r"^ORDER-[0-9]{6}$")
 SUCCESS_WORDS = re.compile(r"thank|success|confirm|placed|received", re.IGNORECASE)
 MONEY = r"\$\s?\d[\d,]*\.\d{2}"
 

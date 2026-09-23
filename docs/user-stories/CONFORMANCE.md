@@ -131,7 +131,7 @@ Copy the checklist of the chosen outcome into the PR description.
 - [ ] A facilitator note for the handoff: the flag, its flow, trigger and defect, and the criterion that detects it.
 - [ ] Verified: `openspec validate acceptance-conformance --strict --json` reports `"valid": true` and no issue at any level whose message contains "Archive would refuse"; `uv run pytest backend/tests` passes.
 
-## Unreleased
+## workshop-gatetest-1
 
 - Image tag: TBD (filled at release: `workshop-<id>`)
 - Image digest: TBD (filled after tagging; the authoritative image identifier)
