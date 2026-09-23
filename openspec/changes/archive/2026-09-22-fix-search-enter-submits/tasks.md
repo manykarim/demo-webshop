@@ -9,5 +9,5 @@
 ## 3. Verification and rollout
 
 - [x] 3.1 Run `uv run pytest backend/tests`, `uv run pytest -m browser` three times in a row, and the WEB-004 conformance module against a locally built image in both space modes. Verify that all runs are green.
-- [ ] 3.2 Open a pull request, confirm `check` and `build` are green, merge it, and confirm that both `conformance` legs of the next `main` run pass all 95 criteria.
-- [ ] 3.3 Archive this change with `openspec archive fix-search-enter-submits -y`, and verify that `openspec/specs/` is unchanged.
+- [x] 3.2 Open a pull request, confirm `check` and `build` are green, merge it, and confirm that both `conformance` legs of the next `main` run pass all 95 criteria.
+- [x] 3.3 Archive this change with `openspec archive fix-search-enter-submits -y`, and verify that `openspec/specs/` is unchanged.

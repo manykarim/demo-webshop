@@ -6,6 +6,6 @@
 ## 2. Verification and rollout
 
 - [x] 2.1 Run `uv run pytest backend/tests` and `uv run pytest -m browser`, and verify that both are green.
-- [ ] 2.2 Open a pull request, confirm `check` and `build` are green, merge it, and confirm that the next `main` run passes `test`, both `conformance` legs and `publish`.
-- [ ] 2.3 Redeploy the shared instance by that run's `build` digest. Once the Cloudflare cache has been purged or its four-hour TTL has passed, verify through Cloudflare that an order's `invoice.pdf` answers `cf-cache-status` other than `HIT` together with `Cache-Control: private, no-store`, and 404 from another space.
-- [ ] 2.4 Archive this change with `openspec archive fix-cdn-caching -y`, and verify that `openspec/specs/` is unchanged.
+- [x] 2.2 Open a pull request, confirm `check` and `build` are green, merge it, and confirm that the next `main` run passes `test`, both `conformance` legs and `publish`.
+- [x] 2.3 Redeploy the shared instance by that run's `build` digest. Once the Cloudflare cache has been purged or its four-hour TTL has passed, verify through Cloudflare that an order's `invoice.pdf` answers `cf-cache-status` other than `HIT` together with `Cache-Control: private, no-store`, and 404 from another space.
+- [x] 2.4 Archive this change with `openspec archive fix-cdn-caching -y`, and verify that `openspec/specs/` is unchanged.

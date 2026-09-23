@@ -11,5 +11,5 @@
 ## 3. Full verification and rollout
 
 - [x] 3.1 Run `uv run pytest backend/tests` and `uv run pytest -m browser` locally, the browser suite three times in a row, and verify that all runs are green.
-- [ ] 3.2 Open a pull request, confirm the `check` and `build` jobs (including the browser smoke) are green, merge it, and confirm that the next `main` run's `test` job passes and `publish` runs. Record the run URL in the pull request.
-- [ ] 3.3 Archive this change with `openspec archive fix-login-modal-focus -y`, and verify that `openspec list` no longer shows it and that `openspec/specs/` is unchanged.
+- [x] 3.2 Open a pull request, confirm the `check` and `build` jobs (including the browser smoke) are green, merge it, and confirm that the next `main` run's `test` job passes and `publish` runs. Record the run URL in the pull request.
+- [x] 3.3 Archive this change with `openspec archive fix-login-modal-focus -y`, and verify that `openspec list` no longer shows it and that `openspec/specs/` is unchanged.
